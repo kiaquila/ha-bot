@@ -13,7 +13,7 @@
 ## Verification
 
 - [x] T005 Run local preflight.
-- [ ] T006 Confirm GitHub OSV Scan passes.
+- [x] T006 Confirm GitHub OSV Scan passes.
 - [x] T007 Update docs and tasks status.
 
 ## Process Memory
