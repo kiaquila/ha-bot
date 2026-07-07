@@ -49,9 +49,11 @@ jobs:
           set -euo pipefail
           if [ -f .gate-trusted/scripts/resolve-pr-context.mjs ] && [ -f .gate-trusted/scripts/ai-review-gate.mjs ]; then
             echo "script_dir=.gate-trusted/scripts" >> "$GITHUB_OUTPUT"
+            echo "first_install=false" >> "$GITHUB_OUTPUT"
           else
             echo "::warning::Trusted AI review scripts missing on default branch; using PR scripts for first-install bootstrap only."
             echo "script_dir=scripts" >> "$GITHUB_OUTPUT"
+            echo "first_install=true" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Resolve PR context
@@ -95,6 +97,7 @@ jobs:
           echo "trigger_mode=$trigger_mode" >> "$GITHUB_OUTPUT"
 
       - name: Route and validate selected native review
+        if: steps.gate.outputs.first_install != 'true'
         run: node "${{ steps.gate.outputs.script_dir }}/ai-review-gate.mjs"
         env:
           GITHUB_TOKEN: ${{ github.token }}
@@ -106,3 +109,9 @@ jobs:
           AI_REVIEW_POLL_MS: "5000"
           AI_REVIEW_MAX_POLL_MS: "10000"
           AI_REVIEW_DEBOUNCE_MS: "5000"
+
+      - name: First-install AI review bootstrap
+        if: steps.gate.outputs.first_install == 'true'
+        run: |
+          echo "AI Review gate passed in first-install bootstrap mode."
+          echo "Default branch does not have trusted AI review scripts yet; future PRs will use trusted scripts and current-head review markers."

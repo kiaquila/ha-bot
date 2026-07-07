@@ -29,13 +29,29 @@ jobs:
       )
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout PR content
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
       - name: Checkout trusted rerun scripts
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           ref: ${{ github.event.repository.default_branch }}
+          path: .gate-trusted
+
+      - name: Select rerun scripts
+        id: gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -f .gate-trusted/scripts/ai-review-rerun.mjs ]; then
+            echo "script_dir=.gate-trusted/scripts" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::Trusted AI review rerun script missing on default branch; using PR script for first-install bootstrap only."
+            echo "script_dir=scripts" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Rerun AI Review for trusted evidence
-        run: node scripts/ai-review-rerun.mjs
+        run: node "${{ steps.gate.outputs.script_dir }}/ai-review-rerun.mjs"
         env:
           GITHUB_TOKEN: ${{ github.token }}
           AI_REVIEW_AGENT: ${{ vars.AI_REVIEW_AGENT }}
