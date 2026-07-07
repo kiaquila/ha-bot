@@ -138,6 +138,8 @@ jobs:
         shell: bash
         env:
           DEPLOY_SHA: ${{ github.sha }}
+          GITHUB_FETCH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
           BOTS_DEPLOY_PATH: ${{ secrets.BOTS_DEPLOY_PATH }}
           BOTS_SYSTEMD_SERVICE: ${{ secrets.BOTS_SYSTEMD_SERVICE }}
           BOTS_INSTALL_COMMAND: ${{ secrets.BOTS_INSTALL_COMMAND }}
@@ -149,8 +151,16 @@ jobs:
             printf "%q" "$1"
           }
 
+          github_fetch_auth="$(printf "x-access-token:%s" "$GITHUB_FETCH_TOKEN" | base64 | tr -d "\n")"
+          if [ -z "$github_fetch_auth" ]; then
+            echo "::error::GitHub fetch credentials could not be prepared."
+            exit 1
+          fi
+
           remote_env=(
             "DEPLOY_SHA=$(quote "$DEPLOY_SHA")"
+            "GITHUB_FETCH_URL=$(quote "https://github.com/${GITHUB_REPOSITORY}.git")"
+            "GITHUB_FETCH_AUTH_HEADER=$(quote "AUTHORIZATION: Basic $github_fetch_auth")"
             "DEPLOY_PATH=$(quote "$BOTS_DEPLOY_PATH")"
             "SERVICE_NAME=$(quote "$BOTS_SYSTEMD_SERVICE")"
             "INSTALL_COMMAND=$(quote "$BOTS_INSTALL_COMMAND")"
@@ -163,7 +173,7 @@ jobs:
 
           cd "$DEPLOY_PATH"
           git reset --hard
-          git fetch --prune origin main
+          git -c http.extraHeader="$GITHUB_FETCH_AUTH_HEADER" fetch --prune "$GITHUB_FETCH_URL" main
           git checkout -B main "$DEPLOY_SHA"
           git reset --hard "$DEPLOY_SHA"
 

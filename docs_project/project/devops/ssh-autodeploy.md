@@ -27,5 +27,9 @@ from `origin main`, install Python dependencies, and restart the worker service.
 Runtime secrets such as the Telegram bot token stay on the host or in the
 service manager; they are not stored in the repository.
 
+The remote host does not need a persistent GitHub deploy key. During deployment,
+the workflow fetches the repository over HTTPS with the job-scoped
+`GITHUB_TOKEN`, then resets the remote clone to the pushed SHA.
+
 Manual redeploys can be started from the `Deploy Production` workflow, using the
 `main` branch.
