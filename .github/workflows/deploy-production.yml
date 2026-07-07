@@ -1,0 +1,188 @@
+name: Deploy Production
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy-preflight:
+    name: deploy-preflight
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "20"
+          cache: "pnpm"
+
+      - name: Setup Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install control-plane dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install bot dependencies
+        run: python3 -m pip install -r requirements.txt
+
+      - name: Run local guardrails
+        run: pnpm run preflight
+
+  production:
+    name: production
+    if: github.ref == 'refs/heads/main'
+    needs: deploy-preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      deployments: write
+    environment:
+      name: production
+    steps:
+      - name: Validate SSH deployment configuration
+        shell: bash
+        env:
+          BOTS_SSH_HOST: ${{ secrets.BOTS_SSH_HOST }}
+          BOTS_SSH_USER: ${{ secrets.BOTS_SSH_USER }}
+          BOTS_SSH_PRIVATE_KEY: ${{ secrets.BOTS_SSH_PRIVATE_KEY }}
+          BOTS_SSH_KNOWN_HOSTS: ${{ secrets.BOTS_SSH_KNOWN_HOSTS }}
+          BOTS_SSH_PORT: ${{ secrets.BOTS_SSH_PORT }}
+          BOTS_DEPLOY_PATH: ${{ secrets.BOTS_DEPLOY_PATH }}
+          BOTS_SYSTEMD_SERVICE: ${{ secrets.BOTS_SYSTEMD_SERVICE }}
+          BOTS_RESTART_COMMAND: ${{ secrets.BOTS_RESTART_COMMAND }}
+        run: |
+          set -euo pipefail
+
+          missing=()
+          require_secret() {
+            local name="$1"
+            local value="$2"
+            if [ -z "$value" ]; then
+              missing+=("$name")
+            fi
+          }
+
+          require_secret "BOTS_SSH_HOST" "$BOTS_SSH_HOST"
+          require_secret "BOTS_SSH_USER" "$BOTS_SSH_USER"
+          require_secret "BOTS_SSH_PRIVATE_KEY" "$BOTS_SSH_PRIVATE_KEY"
+          require_secret "BOTS_SSH_KNOWN_HOSTS" "$BOTS_SSH_KNOWN_HOSTS"
+          require_secret "BOTS_DEPLOY_PATH" "$BOTS_DEPLOY_PATH"
+          if [ -z "$BOTS_RESTART_COMMAND" ]; then
+            require_secret "BOTS_SYSTEMD_SERVICE" "$BOTS_SYSTEMD_SERVICE"
+          fi
+
+          if [ "${#missing[@]}" -gt 0 ]; then
+            printf "::error::Missing required GitHub secret(s): %s\n" "${missing[*]}"
+            exit 1
+          fi
+
+          port="${BOTS_SSH_PORT:-22}"
+          if [[ ! "$port" =~ ^[0-9]+$ ]]; then
+            echo "::error::BOTS_SSH_PORT must be numeric when set."
+            exit 1
+          fi
+
+      - name: Configure SSH
+        shell: bash
+        env:
+          BOTS_SSH_HOST: ${{ secrets.BOTS_SSH_HOST }}
+          BOTS_SSH_USER: ${{ secrets.BOTS_SSH_USER }}
+          BOTS_SSH_PRIVATE_KEY: ${{ secrets.BOTS_SSH_PRIVATE_KEY }}
+          BOTS_SSH_KNOWN_HOSTS: ${{ secrets.BOTS_SSH_KNOWN_HOSTS }}
+          BOTS_SSH_PORT: ${{ secrets.BOTS_SSH_PORT }}
+        run: |
+          set -euo pipefail
+
+          port="${BOTS_SSH_PORT:-22}"
+          install -m 700 -d ~/.ssh
+          printf "%s\n" "$BOTS_SSH_PRIVATE_KEY" > ~/.ssh/bots_deploy_key
+          printf "%s\n" "$BOTS_SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/bots_deploy_key ~/.ssh/known_hosts
+
+          cat > ~/.ssh/config <<EOF
+          Host bots
+            HostName ${BOTS_SSH_HOST}
+            User ${BOTS_SSH_USER}
+            Port ${port}
+            IdentityFile ~/.ssh/bots_deploy_key
+            IdentitiesOnly yes
+            BatchMode yes
+            StrictHostKeyChecking yes
+            UserKnownHostsFile ~/.ssh/known_hosts
+          EOF
+          chmod 600 ~/.ssh/config
+
+      - name: Check SSH connectivity
+        run: ssh bots true
+
+      - name: Deploy merged main to bots
+        shell: bash
+        env:
+          DEPLOY_SHA: ${{ github.sha }}
+          BOTS_DEPLOY_PATH: ${{ secrets.BOTS_DEPLOY_PATH }}
+          BOTS_SYSTEMD_SERVICE: ${{ secrets.BOTS_SYSTEMD_SERVICE }}
+          BOTS_INSTALL_COMMAND: ${{ secrets.BOTS_INSTALL_COMMAND }}
+          BOTS_RESTART_COMMAND: ${{ secrets.BOTS_RESTART_COMMAND }}
+        run: |
+          set -euo pipefail
+
+          quote() {
+            printf "%q" "$1"
+          }
+
+          remote_env=(
+            "DEPLOY_SHA=$(quote "$DEPLOY_SHA")"
+            "DEPLOY_PATH=$(quote "$BOTS_DEPLOY_PATH")"
+            "SERVICE_NAME=$(quote "$BOTS_SYSTEMD_SERVICE")"
+            "INSTALL_COMMAND=$(quote "$BOTS_INSTALL_COMMAND")"
+            "RESTART_COMMAND=$(quote "$BOTS_RESTART_COMMAND")"
+          )
+
+          # shellcheck disable=SC2029
+          ssh bots "${remote_env[*]} bash -se" <<'REMOTE'
+          set -euo pipefail
+
+          cd "$DEPLOY_PATH"
+          git reset --hard
+          git fetch --prune origin main
+          git checkout -B main "$DEPLOY_SHA"
+          git reset --hard "$DEPLOY_SHA"
+
+          current_sha="$(git rev-parse HEAD)"
+          if [ "$current_sha" != "$DEPLOY_SHA" ]; then
+            echo "Remote checkout ended at $current_sha instead of $DEPLOY_SHA." >&2
+            exit 1
+          fi
+
+          if [ -n "$INSTALL_COMMAND" ]; then
+            bash -lc "$INSTALL_COMMAND"
+          else
+            python3 -m pip install -r requirements.txt
+          fi
+
+          if [ -n "$RESTART_COMMAND" ]; then
+            bash -lc "$RESTART_COMMAND"
+          else
+            sudo systemctl restart "$SERVICE_NAME"
+            sudo systemctl is-active --quiet "$SERVICE_NAME"
+          fi
+          REMOTE
