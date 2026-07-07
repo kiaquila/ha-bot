@@ -1,0 +1,19 @@
+# >>> unicorn-hub governance (managed block - bootstrap maintains this) >>>
+# Keep the copied Unicorn Hub control plane out of GitHub Linguist language
+# statistics. These files are workflow scaffolding, not bot product code.
+scripts/ai-command-policy.mjs          linguist-vendored
+scripts/ai-review-gate.mjs             linguist-vendored
+scripts/ai-review-helpers.mjs          linguist-vendored
+scripts/ai-review-rerun.mjs            linguist-vendored
+scripts/apply-branch-protection.mjs    linguist-vendored
+scripts/check-context-budget.mjs       linguist-vendored
+scripts/check-feature-memory.mjs       linguist-vendored
+scripts/check-repo-baseline.mjs        linguist-vendored
+scripts/new-worktree.mjs               linguist-vendored
+scripts/resolve-pr-context.mjs         linguist-vendored
+scripts/set-implementation-agent.mjs   linguist-vendored
+scripts/shared.mjs                     linguist-vendored
+scripts/switch-review-agent.mjs        linguist-vendored
+.unicorn-hub/**                        linguist-vendored
+.specify/**                            linguist-vendored
+# <<< unicorn-hub governance (managed block - bootstrap maintains this) <<<

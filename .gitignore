@@ -1,0 +1,16 @@
+node_modules/
+.DS_Store
+.env
+.env.*
+!.env.example
+.unicorn-hub/local.json
+.claude/
+.codex/
+.omc/
+.omx/
+worktrees/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+dist/
+coverage/

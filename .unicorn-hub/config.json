@@ -1,0 +1,27 @@
+{
+  "docsDir": "docs_project",
+  "specsDir": "specs",
+  "productPaths": [
+    "bot.py",
+    "requirements.txt",
+    "Procfile.py"
+  ],
+  "requiredChecks": [
+    "baseline-checks",
+    "guard",
+    "AI Review"
+  ],
+  "defaultBaseBranch": "main",
+  "defaultImplementationAgent": "claude",
+  "defaultReviewAgent": "codex",
+  "trustedReviewLogins": [],
+  "trustedReviewLoginsByAgent": {},
+  "profile": "telegram-bot",
+  "commands": {
+    "test": "python3 -m py_compile bot.py",
+    "preflight": "pnpm run preflight"
+  },
+  "contextBudget": {
+    "maxAgentLines": 60
+  }
+}
