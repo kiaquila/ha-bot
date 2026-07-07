@@ -45,11 +45,17 @@ because there is only one deployment target.
 | AC-002 | Workflow remote script resets to `${{ github.sha }}`, installs dependencies, and restarts via systemd or `BOTS_RESTART_COMMAND`. |
 | AC-003 | Workflow validation checks required secret names and exits before SSH configuration. |
 | AC-004 | Secret scan over changed docs/spec/workflow files found no credential-shaped values, private URLs, or personal paths. |
+| Post-merge deploy fix | Failed run 28885648768 reached `Deploy merged main to bots`, then remote `git fetch --prune origin main` failed first with `Host key verification failed` and then, after host-key repair, `Permission denied (publickey)`. This fix fetches the repository over HTTPS with the job-scoped `GITHUB_TOKEN` instead of relying on remote GitHub SSH credentials. |
 
 Additional local evidence:
 
 - `pnpm run preflight` passed.
 - `git diff --check` passed.
+- `actionlint .github/workflows/deploy-production.yml` passed after the
+  HTTPS fetch change.
+- `ssh bots` remote validation confirmed `git -c http.extraHeader=... ls-remote
+  https://github.com/kiaquila/ha_bot.git main` succeeds without relying on
+  remote GitHub SSH credentials.
 
 Negative scenario evidence:
 
@@ -57,6 +63,8 @@ Negative scenario evidence:
 - SSH config uses `StrictHostKeyChecking yes` with required `BOTS_SSH_KNOWN_HOSTS`.
 - Remote SHA verification compares `git rev-parse HEAD` with the deployed SHA
   before install and restart commands.
+- Remote GitHub repository access uses the workflow job's ephemeral
+  `GITHUB_TOKEN` over HTTPS instead of a permanent GitHub SSH key on `bots`.
 
 ## Risks
 
@@ -66,3 +74,9 @@ Negative scenario evidence:
   `BOTS_INSTALL_COMMAND` or `BOTS_RESTART_COMMAND`.
 - GitHub Deployments evidence is only available after this PR is merged and the
   workflow runs on `main`.
+- The deployment job depends on the remote host being able to reach GitHub over
+  HTTPS during `git fetch`.
+- Rerunning the old failed workflow and dispatching a fresh manual deployment
+  produced jobs with no runner steps because GitHub Actions reported an account
+  billing or spending-limit blocker. Final deployment evidence requires that
+  GitHub account issue to be resolved first.
