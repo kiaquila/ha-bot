@@ -7,6 +7,15 @@ Telegram bot for monitoring Hospital Aleman appointment availability.
 - Python service entrypoint: `bot.py`
 - Service command: `worker: python bot.py` in `Procfile.py`
 - Required runtime environment: `BOT_TOKEN`
+- Optional runtime environment:
+  - `HA_CRED_KEY` — Fernet key that enables encrypted on-disk persistence, so
+    credentials, the selected patient, and active tasks survive a restart. When
+    unset, the bot keeps state in memory only (lost on restart). Generate a key
+    with `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`.
+  - `HA_STATE_PATH` — path to the encrypted state file (default `ha_state.enc`);
+    point it at a location that persists across restarts on the deploy host.
+
+See `.env.example` for the full set of environment variables.
 
 Install bot dependencies:
 

@@ -14,3 +14,8 @@ __pycache__/
 .pytest_cache/
 dist/
 coverage/
+# Encrypted runtime state written by the bot (feature 005); never commit it.
+ha_state.enc
+ha_state.enc.tmp
+*.enc
+*.enc.tmp

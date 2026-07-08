@@ -14,6 +14,25 @@ HA Bot is a Telegram bot that monitors Hospital Aleman appointment slots.
 - Run `pnpm run preflight` or the configured equivalent before pushing.
 - Never push directly to `main` or merge with missing, queued, red, or stale required checks.
 - Do not put secrets, bearer tokens, patient identifiers, private URLs, or personal paths in docs, specs, examples, or templates.
+- Every commit and squash-merge message must end with a `Co-authored-by:` trailer for the AI agent(s) involved (see Commit Protocol).
+
+## Commit Protocol
+
+Every commit — and every squash-merge commit that lands a PR on `main` — must end
+with a `Co-authored-by:` trailer identifying the AI agent(s) that produced the
+change, so AI authorship is recorded in the permanent history. This is mandatory,
+not optional.
+
+- Put the trailer in the message footer: a blank line, then one
+  `Co-authored-by: <Name> <email>` line per contributing agent. The trailer key is
+  case-insensitive; GitHub renders these lines as co-authors.
+- Examples: `Co-authored-by: Claude Opus 4.8 <noreply@anthropic.com>` or
+  `Co-authored-by: OpenAI Codex <codex@openai.com>`.
+- Because product-code PRs are squash-merged, the co-author line(s) must remain at
+  the end of the squash commit body. GitHub carries them over from the PR's
+  commits; if you hand-edit the squash message, do not drop them.
+- Credit the AI collaborator alongside the human author; never attribute changes to
+  a person who did not write them.
 
 ## Task-Scoped Reading
 
