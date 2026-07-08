@@ -82,6 +82,7 @@ class Task:
     plan: int = 94
     notified: set = field(default_factory=set)  # keys like "<agendaNombre> 02-MAR-26 10:00"
     active: bool = True
+    auth_fail_count: int = 0
 
     # for Todos: if not None, monitor any agendaNombre in this list (by fuzzy match)
     agenda_nombres: Optional[List[str]] = None
@@ -1227,8 +1228,8 @@ async def check_task_once(uid: int, user: UserState, t: Task, context: ContextTy
     if not t.active:
         return
 
-    if user.auth_fail_count >= AUTH_FAIL_CAP:
-        return  # paused after repeated rejections; user must re-authorize
+    if t.auth_fail_count >= AUTH_FAIL_CAP:
+        return  # paused after repeated rejections; user must re-authorize or recreate
 
     token = ensure_token(user)
     if token is None:
@@ -1254,13 +1255,13 @@ async def check_task_once(uid: int, user: UserState, t: Task, context: ContextTy
         resp = fetch_turnos(token, payload)
     except Exception as e:
         if _is_invalid_token_error(e):
-            await _handle_invalid_token(uid, user, context)
+            await _handle_invalid_token(uid, user, t, context)
             return
         log.warning("Error polling task %s for user %s: %s", t.task_id, uid, e)
         return
 
     if isinstance(resp, dict) and resp.get("errorMessage") == "Invalid token":
-        await _handle_invalid_token(uid, user, context)
+        await _handle_invalid_token(uid, user, t, context)
         return
 
     if not isinstance(resp, list):
@@ -1268,7 +1269,7 @@ async def check_task_once(uid: int, user: UserState, t: Task, context: ContextTy
         return
 
     # A valid slot list means the token + patient are accepted again.
-    user.auth_fail_count = 0
+    t.auth_fail_count = 0
     log.info("[HA API] RESP %d slots", len(resp))
 
     for slot in resp:
@@ -1307,25 +1308,26 @@ async def check_task_once(uid: int, user: UserState, t: Task, context: ContextTy
             pass
 
 
-async def _handle_invalid_token(uid: int, user: UserState, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def _handle_invalid_token(uid: int, user: UserState, t: Task, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Portal rejected the token/patient mid-flight. Credential users self-heal by
     re-logging in next cycle, but only up to AUTH_FAIL_CAP consecutive failures —
-    then monitoring is paused (via the cap guard in poll/check) and the user is
-    told once, so a persistent 401 can't loop silently forever. Manual-token users
-    are asked for a fresh token immediately (once)."""
+    then the affected task is paused and the user is told once, so one persistent
+    401 can't loop silently forever or be reset by another successful task.
+    Manual-token users are asked for a fresh token immediately (once)."""
     user.token = None
-    user.auth_fail_count += 1
+    t.auth_fail_count += 1
 
     if user.usuario and user.password:
-        if user.auth_fail_count < AUTH_FAIL_CAP:
+        if t.auth_fail_count < AUTH_FAIL_CAP:
             log.info("[AUTH] token rejected; re-login from stored credentials (%d/%d)",
-                     user.auth_fail_count, AUTH_FAIL_CAP)
+                     t.auth_fail_count, AUTH_FAIL_CAP)
             return
-        if user.auth_fail_count == AUTH_FAIL_CAP:
+        if t.auth_fail_count == AUTH_FAIL_CAP:
+            t.active = False
             try:
                 await context.bot.send_message(
                     uid,
-                    "❌ Портал повторно отклоняет запрос — мониторинг приостановлен.\n"
+                    "❌ Портал повторно отклоняет запрос — это задание приостановлено.\n"
                     "Войдите заново через /login или пересоздайте задание /new.",
                 )
             except Exception:
@@ -1333,13 +1335,23 @@ async def _handle_invalid_token(uid: int, user: UserState, context: ContextTypes
         return
 
     # manual token: cannot self-heal — ask once for a new token
-    if user.auth_fail_count == 1:
+    if t.auth_fail_count == 1:
         user.awaiting = "token"
         try:
             await context.bot.send_message(
                 uid,
                 "❌ Token недействителен/истёк. Пришлите новый access token (Bearer) "
                 "или войдите по логину через /login, чтобы продолжить мониторинг.",
+            )
+        except Exception:
+            pass
+    elif t.auth_fail_count >= AUTH_FAIL_CAP:
+        t.active = False
+        try:
+            await context.bot.send_message(
+                uid,
+                "❌ Портал повторно отклоняет token для этого задания — задание приостановлено.\n"
+                "Пришлите новый token или войдите через /login, затем создайте задание заново.",
             )
         except Exception:
             pass
@@ -1350,9 +1362,6 @@ async def poll_tasks(context: ContextTypes.DEFAULT_TYPE):
         active_tasks = [t for t in user.tasks.values() if t.active]
         if not active_tasks:
             continue
-
-        if user.auth_fail_count >= AUTH_FAIL_CAP:
-            continue  # paused after repeated rejections; user must re-authorize
 
         token = ensure_token(user)
         if token is None:

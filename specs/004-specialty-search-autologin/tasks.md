@@ -38,6 +38,7 @@
 - Patient chooser options are limited to ids present in the token claim; profile/minors data only enriches names and plan.
 - Manual-token mode clears stale stored credentials; login mode clears stale manual token state.
 - Tasks snapshot patient id and plan at creation, so later `/login` or patient switches do not silently retarget existing monitors.
+- Invalid-token retry counts are tracked per task, so one rejected monitor cannot be reset by another task's success.
 - Not changed (documented): blocking `requests` on the event loop (pre-existing); password-over-chat exposure (inherent to Telegram, mitigated by message deletion).
 
 ## Process Memory

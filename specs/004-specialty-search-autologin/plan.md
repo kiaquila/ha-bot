@@ -29,8 +29,9 @@ Everything stays in `bot.py`; no new dependency, no disk state.
   the slot API validates against it) and enriches names/plan from the titular profile
   and authorized minors. `present_patient_selection` auto-selects a lone patient or
   shows name buttons (`pat:{id}`); the chosen internal id + plan are stored and used in
-  the slot payload. Each monitoring task snapshots that id + plan at creation, so later
-  re-auth or patient switches do not silently move existing monitors. No manual number
+  the slot payload. Each monitoring task snapshots that id + plan at creation and keeps
+  its own invalid-token failure counter, so later re-auth/patient switches or unrelated
+  successful tasks do not silently move or unpause an existing monitor. No manual number
   entry.
 - Invalid token: `_is_invalid_token_error` treats HTTP 401 (or an "Invalid token" body)
   as a token failure; credentials users refresh silently next cycle, manual users are
