@@ -35,7 +35,8 @@ Everything stays in `bot.py`; no new dependency, no disk state.
   entry.
 - Invalid token: `_is_invalid_token_error` treats HTTP 401 (or an "Invalid token" body)
   as a token failure; credentials users refresh silently next cycle, manual users are
-  asked for a fresh token.
+  asked for a fresh token. Accepting fresh credentials or a new manual token resets
+  active tasks' invalid-token counters so a replacement token gets a full retry cycle.
 - Onboarding: after auth (login or manual token) → patient selection → menu. `/login`
   resets auth + patient and restarts. Password message deleted on receipt; never logged.
 

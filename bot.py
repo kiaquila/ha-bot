@@ -560,6 +560,12 @@ async def present_patient_selection(send, user: UserState, token: str) -> bool:
     return True
 
 
+def _reset_active_task_auth_failures(user: UserState) -> None:
+    for task in user.tasks:
+        if task.active:
+            task.auth_fail_count = 0
+
+
 async def _reprompt_manual_token(send, user: UserState) -> None:
     """Clear a bad manual token and keep the user in token-entry mode."""
     if user.usuario and user.password:
@@ -652,6 +658,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user.token = token
         user.awaiting = None
         user.auth_fail_count = 0
+        _reset_active_task_auth_failures(user)
         await present_patient_selection(update.effective_chat.send_message, user, token)
         return
 
@@ -659,6 +666,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user.token = text
         user.awaiting = None
         user.auth_fail_count = 0
+        _reset_active_task_auth_failures(user)
         token = ensure_token(user)
         if not token:
             await _reprompt_manual_token(update.effective_chat.send_message, user)
