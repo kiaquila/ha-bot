@@ -76,6 +76,10 @@ class Task:
     cod_instancia: int
     month: int
     year: int
+    # Snapshot the selected patient at task creation so later re-auth or patient
+    # switches do not silently move existing monitors.
+    paciente: int
+    plan: int = 94
     notified: set = field(default_factory=set)  # keys like "<agendaNombre> 02-MAR-26 10:00"
     active: bool = True
 
@@ -798,10 +802,22 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if data == "auth:login":
+        user.token = None
+        user.paciente = None
+        user.plan = 94
+        user.pending_patients = None
+        user.auth_fail_count = 0
         user.awaiting = "usuario"
         await q.message.reply_text("Введите номер документа (DNI / usuario) для входа на портал:")
         return
     if data == "auth:token":
+        user.token = None
+        user.usuario = None
+        user.password = None
+        user.paciente = None
+        user.plan = 94
+        user.pending_patients = None
+        user.auth_fail_count = 0
         user.awaiting = "token"
         await q.message.reply_text("Введите актуальный access token (Bearer):")
         return
@@ -1023,6 +1039,10 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not user.wizard or user.wizard.step != "month":
             await q.message.reply_text("Сессия выбора устарела. Нажмите /new заново.")
             return
+        if user.paciente is None:
+            user.wizard = None
+            await q.message.reply_text("Сначала выберите пациента через /start, затем создайте задание заново.")
+            return
 
         _, _, m_str, y_str = data.split(":")
         m = int(m_str)
@@ -1053,6 +1073,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             cod_instancia=user.wizard.selected_cod_instancia or 0,
             month=m,
             year=y,
+            paciente=int(user.paciente),
+            plan=int(user.plan or 94),
             agenda_nombres=agenda_nombres,
         )
         user.tasks[task_id] = t
@@ -1213,19 +1235,19 @@ async def check_task_once(uid: int, user: UserState, t: Task, context: ContextTy
         await _prompt_reauth(uid, user, context)
         return
 
-    if user.paciente is None:
-        return  # patient is chosen interactively during onboarding, not here
+    if getattr(t, "paciente", None) is None:
+        return  # legacy in-memory task without a patient snapshot
 
     payload = {
         "codAcme": int(t.cod_acme) if str(t.cod_acme).isdigit() else t.cod_acme,
         "codInstancia": int(t.cod_instancia),
         "agendaId": None,
         "fecha": make_fecha_first_of_month(t.month, t.year),
-        "paciente": int(user.paciente),
+        "paciente": int(t.paciente),
         "banda": "O",
         "tipoArea": "IEC",
         "institucion": 50,
-        "plan": int(user.plan or 94),
+        "plan": int(t.plan or 94),
     }
 
     try:
@@ -1336,9 +1358,6 @@ async def poll_tasks(context: ContextTypes.DEFAULT_TYPE):
         if token is None:
             await _prompt_reauth(uid, user, context)
             continue
-
-        if user.paciente is None:
-            continue  # patient is chosen interactively during onboarding
 
         for t in active_tasks:
             await check_task_once(uid, user, t, context)
