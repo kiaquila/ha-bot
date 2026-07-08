@@ -34,6 +34,8 @@
 - Slot logging redacts `paciente` and logs a slot count instead of the full response.
 - `/new` routes a 401 to re-auth instead of a generic error.
 - Malformed manual tokens now clear the bad token and keep the user in token-entry mode after patient selection fails.
+- Patient enrichment treats 401/invalid-token as failed auth, not as a generic-label fallback.
+- Patient chooser options are limited to ids present in the token claim; profile/minors data only enriches names and plan.
 - Not changed (documented): blocking `requests` on the event loop (pre-existing); password-over-chat exposure (inherent to Telegram, mitigated by message deletion).
 
 ## Process Memory

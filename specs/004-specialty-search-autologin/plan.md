@@ -54,10 +54,11 @@ Everything stays in `bot.py`; no new dependency, no disk state.
 
 ## Complexity Tracking
 
-`fetch_patients`' fallback (ps ids + generic labels when enrichment fails) is
+`fetch_patients`' fallback (ps ids + generic labels when non-auth enrichment fails) is
 justified, not a shim: `ps` is the authoritative source of valid ids (one profile
 endpoint was observed returning 502), so degrading to valid-ids-without-names keeps
-correctness while never storing a wrong id.
+correctness while never storing a wrong id. Token rejection does not use this
+fallback; it returns no patients so onboarding asks for fresh auth.
 
 ## Verification
 

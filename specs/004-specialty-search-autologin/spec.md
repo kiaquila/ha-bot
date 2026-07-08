@@ -83,8 +83,8 @@ my password.
 1. Wrong credentials → surface the portal message and re-prompt; never store an
    invalid password as valid.
 2. Password sent in chat → the message is deleted and the value is never logged.
-3. The profile/minors enrichment call fails → patient list falls back to the token's
-   `ps` ids with generic labels (still valid ids), never a wrong id, no crash.
+3. A non-auth profile/minors enrichment call fails → patient list falls back to the
+   token's `ps` ids with generic labels (still valid ids), never a wrong id, no crash.
 4. Empty specialty/doctor search → offer retry + full list, no crash.
 
 ## Requirements

@@ -273,13 +273,33 @@ def fetch_patients(token: str) -> List[Dict[str, Any]]:
 
     The valid paciente ids come from the token's `ps` claim (the slot API
     validates the payload's `paciente` against it); names/plan are enriched from
-    the titular profile and authorized minors. Never raises — on a failed
-    enrichment call it falls back to the `ps` ids with generic labels.
+    the titular profile and authorized minors. On non-auth enrichment failures it
+    falls back to those claim ids with generic labels; token rejection returns no
+    patients so the caller asks for fresh auth.
     """
     payload = _jwt_payload(token) or {}
-    ps = payload.get("ps")
-    if not isinstance(ps, list):
-        ps = [ps] if ps else ([payload["paciente"]] if payload.get("paciente") else [])
+    raw_ps = payload.get("ps")
+    if isinstance(raw_ps, list):
+        raw_patient_ids = raw_ps
+    elif raw_ps:
+        raw_patient_ids = [raw_ps]
+    elif payload.get("paciente"):
+        raw_patient_ids = [payload["paciente"]]
+    else:
+        raw_patient_ids = []
+
+    allowed_ids: List[int] = []
+    allowed_set = set()
+    for raw_pid in raw_patient_ids:
+        try:
+            pid = int(raw_pid)
+        except Exception:
+            continue
+        if pid in allowed_set:
+            continue
+        allowed_ids.append(pid)
+        allowed_set.add(pid)
+
     nrodoc = payload.get("sub")
     nrosoc = payload.get("nrosoc")
 
@@ -297,14 +317,16 @@ def fetch_patients(token: str) -> List[Dict[str, Any]]:
             tit = r.json()
             if isinstance(tit, dict) and tit.get("paciente"):
                 pid = int(tit["paciente"])
-                names[pid] = (tit.get("nombre") or "").strip() or f"Paciente {pid}"
-                if tit.get("plan"):
-                    plans[pid] = int(tit["plan"])
                 credencial = tit.get("credencial")
                 menores_count = int(tit.get("menores") or 0)
-                if not ps:
-                    ps = [pid]
+                if pid in allowed_set:
+                    names[pid] = (tit.get("nombre") or "").strip() or f"Paciente {pid}"
+                    if tit.get("plan"):
+                        plans[pid] = int(tit["plan"])
         except Exception as e:
+            if _is_invalid_token_error(e):
+                log.warning("[HA API] perfil/dni rejected token: %s", type(e).__name__)
+                return []
             log.warning("[HA API] perfil/dni failed: %s", type(e).__name__)
 
     if menores_count and nrosoc is not None and str(nrosoc).isdigit() and str(credencial).isdigit():
@@ -320,28 +342,19 @@ def fetch_patients(token: str) -> List[Dict[str, Any]]:
             for m in menores or []:
                 if isinstance(m, dict) and m.get("paciente"):
                     pid = int(m["paciente"])
-                    names[pid] = (m.get("nombre") or "").strip() or f"Paciente {pid}"
-                    if m.get("plan"):
-                        plans[pid] = int(m["plan"])
+                    if pid in allowed_set:
+                        names[pid] = (m.get("nombre") or "").strip() or f"Paciente {pid}"
+                        if m.get("plan"):
+                            plans[pid] = int(m["plan"])
         except Exception as e:
+            if _is_invalid_token_error(e):
+                log.warning("[HA API] menoresAutorizados rejected token: %s", type(e).__name__)
+                return []
             log.warning("[HA API] menoresAutorizados failed: %s", type(e).__name__)
 
     result: List[Dict[str, Any]] = []
-    seen = set()
-    for pid in ps:
-        try:
-            pid = int(pid)
-        except Exception:
-            continue
-        if pid in seen:
-            continue
-        seen.add(pid)
+    for pid in allowed_ids:
         result.append({"nombre": names.get(pid, f"Paciente {pid}"), "paciente": pid, "plan": plans.get(pid, 94)})
-    # include any named patient not present in ps (defensive)
-    for pid, nm in names.items():
-        if pid not in seen:
-            seen.add(pid)
-            result.append({"nombre": nm, "paciente": pid, "plan": plans.get(pid, 94)})
     return result
 
 
