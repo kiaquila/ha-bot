@@ -120,7 +120,7 @@ class UserState:
     usuario: Optional[str] = None
     password: Optional[str] = None
     awaiting: Optional[str] = None  # "usuario" | "password" | "token"
-    # consecutive invalid-token/slot rejections (reset on any success / re-auth)
+    # Legacy user-level counter; per-monitor retry state lives on Task.
     auth_fail_count: int = 0
     # transient patient choices awaiting selection [{nombre, paciente, plan}]
     pending_patients: Optional[List[Dict[str, Any]]] = None
@@ -561,7 +561,7 @@ async def present_patient_selection(send, user: UserState, token: str) -> bool:
 
 
 def _reset_active_task_auth_failures(user: UserState) -> None:
-    for task in user.tasks:
+    for task in user.tasks.values():
         if task.active:
             task.auth_fail_count = 0
 

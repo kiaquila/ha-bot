@@ -39,7 +39,7 @@
 - Manual-token mode clears stale stored credentials; login mode clears stale manual token state.
 - Tasks snapshot patient id and plan at creation, so later `/login` or patient switches do not silently retarget existing monitors.
 - Invalid-token retry counts are tracked per task, so one rejected monitor cannot be reset by another task's success.
-- Accepting fresh credentials or a new manual token resets active tasks' retry counts before polling resumes.
+- Accepting fresh credentials or a new manual token resets active task-dict values' retry counts before polling resumes.
 - Not changed (documented): blocking `requests` on the event loop (pre-existing); password-over-chat exposure (inherent to Telegram, mitigated by message deletion).
 
 ## Process Memory

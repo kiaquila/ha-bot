@@ -77,6 +77,9 @@ my password.
    refreshed silently and a manual-token user is asked for a new token (no silent stall).
 8. Given the manual-token option, when the token is invalid, then the bot asks for
    a new token.
+9. Given active monitors had invalid-token failures, when fresh credentials or a
+   replacement manual token is accepted, then active monitors get a fresh retry
+   cycle without reactivating monitors already paused at the failure cap.
 
 ## Negative Scenarios
 
