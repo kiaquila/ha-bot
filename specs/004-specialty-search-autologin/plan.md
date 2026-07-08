@@ -24,7 +24,8 @@ Everything stays in `bot.py`; no new dependency, no disk state.
   Selection callbacks stay `wiz:speci:{i}`/`wiz:doci:{i}` (index into the full list);
   paging state (`spec_query`,`doc_query`) on `WizardState`, captured in back snapshots.
 - Auth: `ha_login`, `token_expired` (JWT exp, 120s skew), `ensure_token` (refresh from
-  stored creds). All token reads route through `ensure_token`.
+  stored creds). All token reads route through `ensure_token`; rejected stored creds
+  are cleared before re-auth prompting so polling does not repeatedly retry them.
 - Patients: `fetch_patients(token)` derives ids from the JWT `ps` claim (authoritative —
   the slot API validates against it) and enriches names/plan from the titular profile
   and authorized minors. `present_patient_selection` auto-selects a lone patient or

@@ -236,6 +236,8 @@ def ensure_token(user: UserState) -> Optional[str]:
             except AuthError as e:
                 log.warning("[AUTH] auto-login rejected: %s", e.message)
                 user.token = None
+                user.usuario = None
+                user.password = None
                 return None
             except Exception as e:  # network/portal hiccup: keep whatever we had
                 log.warning("[AUTH] auto-login error: %s", e)
