@@ -66,9 +66,9 @@ correctness while never storing a wrong id.
 | AC-001 / AC-002 | logic suite: A→Z covers all 196, ≤100 buttons/page, `oftal`→OFTALMOLOGIA |
 | AC-003 | logic suite: 130-doctor list fully reachable, ≤100 buttons/page |
 | AC-004 | logic suite: `ensure_token` refreshes expired JWT, skips when valid |
-| AC-005 / AC-006 | patient-flow suite: 2 patients by name with internal ids; single auto-selected; LIVE `fetch_patients` returns the real account's 2 patients (1493986, 1493987) |
+| AC-005 / AC-006 | patient-flow suite: multiple patients by name with internal ids; single auto-selected; LIVE `fetch_patients` confirmed the operator account's expected patient set with raw identifiers kept out of repository docs |
 | AC-007 | patient-flow suite: `_is_invalid_token_error` True on 401, False on 500 |
-| AC-008 | code path: manual-token invalid-token re-prompt retained |
+| AC-008 | code path: malformed/invalid manual token clears the bad token and re-prompts for a replacement |
 | Negative 1 | live `ha_login` on bogus creds raises `AuthError` |
 | Negative 2 | password message deleted; no password/token in any log statement |
 | Negative 3 | patient-flow suite: enrichment failure falls back to ps ids |

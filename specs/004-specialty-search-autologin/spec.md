@@ -19,9 +19,9 @@ Confirmed against the live portal and the production bot (Telethon-driven):
    monitoring polls every 5 min for hours/days, so the token dies mid-run.
 3. `turnosDisponiblesMes` validates the payload's `paciente` against the token's
    `ps` claim and returns 401 `"Invalid token compared against request values"`
-   otherwise. The value must be the INTERNAL paciente id (e.g. 1493986), not the
-   credencial the user knows (e.g. 12590812723301). Combined with (4), a user who
-   typed their credencial got silently-failing monitoring.
+   otherwise. The value must be the INTERNAL paciente id, not the user-facing
+   credencial number. Combined with (4), a user who typed their credencial got
+   silently-failing monitoring.
 4. On a 401, `requests.raise_for_status()` raises `HTTPError` whose string is
    "401 Client Error…" — it lacks "Invalid token", so the old detection missed it
    and monitoring stalled without telling the user.
@@ -107,8 +107,9 @@ my password.
 - SC-001: `pnpm run preflight` passes locally.
 - SC-002: Logic + patient-flow suites pass (search, pagination coverage, ≤100 buttons,
   token expiry/refresh, patient derivation with correct ids, 401 detection).
-- SC-003: Live `fetch_patients` returns the account's patients with their internal
-  ids; live `auth/login` on bad creds raises the portal error.
+- SC-003: Live `fetch_patients` confirms the operator account's patient derivation
+  without recording patient identifiers in repository docs; live `auth/login` on
+  bad creds raises the portal error.
 
 ## Assumptions
 

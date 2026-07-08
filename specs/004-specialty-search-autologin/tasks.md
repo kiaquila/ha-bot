@@ -21,7 +21,7 @@
 - [x] T011 `python3 -m py_compile bot.py` passes.
 - [x] T012 Logic suite: search finds OFTALMOLOGIA, A→Z coverage complete, ≤100 buttons, 130-doctor coverage, token expiry/refresh, manual pass-through.
 - [x] T013 Patient-flow suite (mocked): 2 patients by name with internal ids, single auto-select, enrichment-failure fallback, 401 detection.
-- [x] T014 LIVE: `fetch_patients` returns the account's 2 patients (correct internal ids); `ha_login` on bogus creds raises `AuthError`; `turnosDisponiblesMes` accepts the internal id and rejects the credencial (401).
+- [x] T014 LIVE: `fetch_patients` returns the expected account patients using valid internal ids (raw identifiers redacted from repo docs); `ha_login` on bogus creds raises `AuthError`; `turnosDisponiblesMes` accepts the internal id and rejects the user-facing credencial (401).
 - [x] T015 Run `pnpm run preflight` locally.
 - [x] T016 Independent review pass (code-reviewer + security-reviewer): LOW risk, no blocking findings; addressed the actionable items below.
 
@@ -33,6 +33,7 @@
 - `pat:` selection accepts only an id present in the user's own list.
 - Slot logging redacts `paciente` and logs a slot count instead of the full response.
 - `/new` routes a 401 to re-auth instead of a generic error.
+- Malformed manual tokens now clear the bad token and keep the user in token-entry mode after patient selection fails.
 - Not changed (documented): blocking `requests` on the event loop (pre-existing); password-over-chat exposure (inherent to Telegram, mitigated by message deletion).
 
 ## Process Memory
@@ -40,7 +41,7 @@
 ### Dead Ends
 
 - Hypothesis "endpoint returns only the patient's referrals" was wrong: `datosProfesionalEspecialidad` returns the full ~196-specialty catalog. The defect was Telegram's silent 100-button clip.
-- Assumed the slot payload `paciente` was the credencial (the number users type). Live test proved it must be the INTERNAL paciente id from the token `ps` claim; the credencial returns 401. So the old manual-number flow was silently broken for anyone entering a credencial.
+- Assumed the slot payload `paciente` was the credencial (the number users type). Live test proved it must be the INTERNAL paciente id from the token `ps` claim; the credencial returns 401. So the old manual-number flow was silently broken for anyone entering a credencial. Raw patient identifiers were intentionally left out of repo docs.
 - Static extraction of the `auth/login` body from `main.js` failed (lazy chunk); recovered from webpack chunk `535`.
 
 ### Decisions

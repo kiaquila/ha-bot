@@ -542,6 +542,18 @@ async def present_patient_selection(send, user: UserState, token: str) -> bool:
     return True
 
 
+async def _reprompt_manual_token(send, user: UserState) -> None:
+    """Clear a bad manual token and keep the user in token-entry mode."""
+    if user.usuario and user.password:
+        return
+    user.token = None
+    user.paciente = None
+    user.pending_patients = None
+    user.awaiting = "token"
+    user.auth_fail_count = 0
+    await send("Token не принят. Пришлите новый access token (Bearer) или войдите по логину через /login.")
+
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
     user = get_user(uid)
@@ -557,7 +569,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if user.paciente is None:
-        await present_patient_selection(update.effective_chat.send_message, user, token)
+        if not await present_patient_selection(update.effective_chat.send_message, user, token):
+            await _reprompt_manual_token(update.effective_chat.send_message, user)
         return
 
     await update.effective_chat.send_message(
@@ -629,10 +642,11 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user.awaiting = None
         user.auth_fail_count = 0
         token = ensure_token(user)
-        if token is None:
-            await update.effective_chat.send_message("Токен не принят. Проверьте и пришлите заново или /login.")
+        if not token:
+            await _reprompt_manual_token(update.effective_chat.send_message, user)
             return
-        await present_patient_selection(update.effective_chat.send_message, user, token)
+        if not await present_patient_selection(update.effective_chat.send_message, user, token):
+            await _reprompt_manual_token(update.effective_chat.send_message, user)
         return
 
     # Free-text acts as a live filter while choosing a specialty or a doctor.
@@ -676,7 +690,8 @@ async def cmd_new(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if user.paciente is None:
-        await present_patient_selection(update.effective_chat.send_message, user, token)
+        if not await present_patient_selection(update.effective_chat.send_message, user, token):
+            await _reprompt_manual_token(update.effective_chat.send_message, user)
         return
 
     try:
