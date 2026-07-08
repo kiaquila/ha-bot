@@ -2,7 +2,11 @@ import os
 from dotenv import load_dotenv
 load_dotenv()
 import asyncio
+import base64
+import json
 import logging
+import time
+import unicodedata
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple, Any
@@ -30,9 +34,20 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN", "").strip()
 if not BOT_TOKEN:
     raise RuntimeError("BOT_TOKEN is not set. Add it to environment variables.")
 CHECK_INTERVAL_SECONDS = 300  # 5 minutes
+# After this many consecutive invalid-token/slot rejections we stop the silent
+# re-login retry loop and tell the user to re-authorize.
+AUTH_FAIL_CAP = 3
 
-URL_REFERENCIAS = "https://www.hospitalaleman.com/tuportal/api/referencias/agenda/datosProfesionalEspecialidad"
-URL_TURNOS = "https://www.hospitalaleman.com/tuportal/api/turnos/turnosDisponiblesMes"
+API_BASE = "https://www.hospitalaleman.com/tuportal/api"
+URL_LOGIN = f"{API_BASE}/auth/login"
+URL_REFERENCIAS = f"{API_BASE}/referencias/agenda/datosProfesionalEspecialidad"
+URL_TURNOS = f"{API_BASE}/turnos/turnosDisponiblesMes"
+URL_PERFIL_DNI = f"{API_BASE}/usuarios/perfiles/dni/{{nrodoc}}"
+URL_MENORES = f"{API_BASE}/usuarios/perfiles/socios/{{nrosoc}}/credenciales/{{credencial}}/menoresAutorizados"
+
+# Telegram silently clips an inline keyboard at 100 buttons, so every list view
+# stays comfortably below that with paging + search.
+CHOICE_PAGE_SIZE = 80
 
 HEADERS_BASE = {
     "sec-ch-ua-platform": '"macOS"',
@@ -61,8 +76,13 @@ class Task:
     cod_instancia: int
     month: int
     year: int
+    # Snapshot the selected patient at task creation so later re-auth or patient
+    # switches do not silently move existing monitors.
+    paciente: int
+    plan: int = 94
     notified: set = field(default_factory=set)  # keys like "<agendaNombre> 02-MAR-26 10:00"
     active: bool = True
+    auth_fail_count: int = 0
 
     # for Todos: if not None, monitor any agendaNombre in this list (by fuzzy match)
     agenda_nombres: Optional[List[str]] = None
@@ -82,12 +102,28 @@ class WizardState:
     spec_list: List[str] = field(default_factory=list)
     doc_list: List[str] = field(default_factory=list)
 
+    # current text filter for each searchable step ("" = show everything)
+    spec_query: str = ""
+    doc_query: str = ""
+
 
 @dataclass
 class UserState:
+    # paciente is the INTERNAL patient id the slot API expects (from the token's
+    # `ps` claim), chosen by name — never typed by the user.
     paciente: Optional[int] = None
+    plan: int = 94
     token: Optional[str] = None
-    awaiting: Optional[str] = None  # "paciente" | "token"
+    # Optional stored portal credentials for automatic token refresh. Kept in
+    # memory only (never written to disk, never logged) — same threat model as
+    # the manually pasted token.
+    usuario: Optional[str] = None
+    password: Optional[str] = None
+    awaiting: Optional[str] = None  # "usuario" | "password" | "token"
+    # Legacy user-level counter; per-monitor retry state lives on Task.
+    auth_fail_count: int = 0
+    # transient patient choices awaiting selection [{nombre, paciente, plan}]
+    pending_patients: Optional[List[Dict[str, Any]]] = None
     wizard: Optional[WizardState] = None
     tasks: Dict[str, Task] = field(default_factory=dict)
 
@@ -99,6 +135,114 @@ def get_user(uid: int) -> UserState:
     if uid not in USERS:
         USERS[uid] = UserState()
     return USERS[uid]
+
+
+def has_auth(user: UserState) -> bool:
+    return bool(user.token) or bool(user.usuario and user.password)
+
+
+# =========================
+# AUTH (login + token refresh)
+# =========================
+
+class AuthError(Exception):
+    """Portal rejected the credentials (validacion=0) or returned no token."""
+
+    def __init__(self, message: str):
+        super().__init__(message)
+        self.message = message
+
+
+def _looks_like_jwt(value: Any) -> bool:
+    return isinstance(value, str) and value.count(".") == 2 and len(value) > 40
+
+
+def _extract_token(data: Any) -> Optional[str]:
+    if not isinstance(data, dict):
+        return None
+    for key in ("accessToken", "token", "access_token", "jwt", "idToken"):
+        if _looks_like_jwt(data.get(key)):
+            return data[key]
+    for value in data.values():
+        if _looks_like_jwt(value):
+            return value
+        if isinstance(value, dict):
+            nested = _extract_token(value)
+            if nested:
+                return nested
+    return None
+
+
+def ha_login(usuario: str, password: str) -> str:
+    """POST auth/login and return the JWT access token, or raise AuthError."""
+    headers = dict(HEADERS_BASE)
+    headers["Content-Type"] = "application/json"
+    headers["Referer"] = "https://www.hospitalaleman.com/tuportal/app/login"
+    log.info("[HA API] POST %s (login)", URL_LOGIN)
+    r = requests.post(
+        URL_LOGIN,
+        headers=headers,
+        json={"usuario": usuario, "password": password},
+        timeout=30,
+    )
+    r.raise_for_status()
+    data = r.json()
+    if isinstance(data, dict) and data.get("validacion") == 0:
+        raise AuthError(data.get("mensaje") or "Documento o contraseña incorrectos")
+    token = _extract_token(data)
+    if not token:
+        raise AuthError("El portal no devolvió un token de acceso.")
+    return token
+
+
+def _jwt_payload(token: str) -> Optional[Dict[str, Any]]:
+    try:
+        part = token.split(".")[1]
+        part += "=" * (-len(part) % 4)
+        return json.loads(base64.urlsafe_b64decode(part))
+    except Exception:
+        return None
+
+
+def token_expired(token: Optional[str], skew_seconds: int = 120) -> bool:
+    """True if the JWT is missing or within skew_seconds of its exp.
+
+    Opaque/unparseable tokens are treated as NOT expired: we cannot refresh them
+    without credentials anyway, so the caller keeps using them until the API
+    rejects them.
+    """
+    if not token:
+        return True
+    payload = _jwt_payload(token)
+    if not payload or "exp" not in payload:
+        return False
+    try:
+        return (time.time() + skew_seconds) >= float(payload["exp"])
+    except Exception:
+        return False
+
+
+def ensure_token(user: UserState) -> Optional[str]:
+    """Return a usable access token, refreshing via stored credentials if needed.
+
+    Returns None only when no token can be obtained (bad/expired credentials and
+    no manual token), signalling the caller to prompt the user.
+    """
+    if user.usuario and user.password:
+        if not user.token or token_expired(user.token):
+            try:
+                user.token = ha_login(user.usuario, user.password)
+                log.info("[AUTH] token refreshed via stored credentials")
+            except AuthError as e:
+                log.warning("[AUTH] auto-login rejected: %s", e.message)
+                user.token = None
+                user.usuario = None
+                user.password = None
+                return None
+            except Exception as e:  # network/portal hiccup: keep whatever we had
+                log.warning("[AUTH] auto-login error: %s", e)
+                return user.token
+    return user.token
 
 
 # =========================
@@ -122,12 +266,103 @@ def fetch_referencias(token: str) -> List[Dict[str, Any]]:
 
 
 def fetch_turnos(token: str, payload: Dict[str, Any]) -> Any:
-    log.info("[HA API] POST %s payload=%s", URL_TURNOS, payload)
+    safe_payload = {k: v for k, v in payload.items() if k != "paciente"}
+    log.info("[HA API] POST %s payload=%s", URL_TURNOS, safe_payload)
     h = auth_headers(token)
     h["Content-Type"] = "application/json"
     r = requests.post(URL_TURNOS, headers=h, json=payload, timeout=30)
     r.raise_for_status()
     return r.json()
+
+
+def fetch_patients(token: str) -> List[Dict[str, Any]]:
+    """Return the account's patients as [{'nombre', 'paciente', 'plan'}].
+
+    The valid paciente ids come from the token's `ps` claim (the slot API
+    validates the payload's `paciente` against it); names/plan are enriched from
+    the titular profile and authorized minors. On non-auth enrichment failures it
+    falls back to those claim ids with generic labels; token rejection returns no
+    patients so the caller asks for fresh auth.
+    """
+    payload = _jwt_payload(token) or {}
+    raw_ps = payload.get("ps")
+    if isinstance(raw_ps, list):
+        raw_patient_ids = raw_ps
+    elif raw_ps:
+        raw_patient_ids = [raw_ps]
+    elif payload.get("paciente"):
+        raw_patient_ids = [payload["paciente"]]
+    else:
+        raw_patient_ids = []
+
+    allowed_ids: List[int] = []
+    allowed_set = set()
+    for raw_pid in raw_patient_ids:
+        try:
+            pid = int(raw_pid)
+        except Exception:
+            continue
+        if pid in allowed_set:
+            continue
+        allowed_ids.append(pid)
+        allowed_set.add(pid)
+
+    nrodoc = payload.get("sub")
+    nrosoc = payload.get("nrosoc")
+
+    names: Dict[int, str] = {}
+    plans: Dict[int, int] = {}
+    credencial = None
+    menores_count = 0
+
+    # nrodoc/nrosoc/credencial are interpolated into request URLs; require plain
+    # digits so a crafted token cannot inject path/query segments.
+    if nrodoc is not None and str(nrodoc).isdigit():
+        try:
+            r = requests.get(URL_PERFIL_DNI.format(nrodoc=nrodoc), headers=auth_headers(token), timeout=30)
+            r.raise_for_status()
+            tit = r.json()
+            if isinstance(tit, dict) and tit.get("paciente"):
+                pid = int(tit["paciente"])
+                credencial = tit.get("credencial")
+                menores_count = int(tit.get("menores") or 0)
+                if pid in allowed_set:
+                    names[pid] = (tit.get("nombre") or "").strip() or f"Paciente {pid}"
+                    if tit.get("plan"):
+                        plans[pid] = int(tit["plan"])
+        except Exception as e:
+            if _is_invalid_token_error(e):
+                log.warning("[HA API] perfil/dni rejected token: %s", type(e).__name__)
+                return []
+            log.warning("[HA API] perfil/dni failed: %s", type(e).__name__)
+
+    if menores_count and nrosoc is not None and str(nrosoc).isdigit() and str(credencial).isdigit():
+        try:
+            r = requests.get(
+                URL_MENORES.format(nrosoc=nrosoc, credencial=credencial),
+                headers=auth_headers(token),
+                timeout=30,
+            )
+            r.raise_for_status()
+            data = r.json()
+            menores = data.get("menores") if isinstance(data, dict) else data
+            for m in menores or []:
+                if isinstance(m, dict) and m.get("paciente"):
+                    pid = int(m["paciente"])
+                    if pid in allowed_set:
+                        names[pid] = (m.get("nombre") or "").strip() or f"Paciente {pid}"
+                        if m.get("plan"):
+                            plans[pid] = int(m["plan"])
+        except Exception as e:
+            if _is_invalid_token_error(e):
+                log.warning("[HA API] menoresAutorizados rejected token: %s", type(e).__name__)
+                return []
+            log.warning("[HA API] menoresAutorizados failed: %s", type(e).__name__)
+
+    result: List[Dict[str, Any]] = []
+    for pid in allowed_ids:
+        result.append({"nombre": names.get(pid, f"Paciente {pid}"), "paciente": pid, "plan": plans.get(pid, 94)})
+    return result
 
 
 # =========================
@@ -139,6 +374,21 @@ def main_menu_keyboard() -> InlineKeyboardMarkup:
         [InlineKeyboardButton("➕ /new", callback_data="main:new")],
         [InlineKeyboardButton("📋 /tasks", callback_data="main:tasks")],
     ])
+
+
+def auth_mode_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🔐 Логин и пароль (рекомендуется)", callback_data="auth:login")],
+        [InlineKeyboardButton("🔑 Вставить токен вручную", callback_data="auth:token")],
+    ])
+
+
+AUTH_INTRO = (
+    "Как авторизуемся на портале Hospital Alemán?\n\n"
+    "🔐 *Логин и пароль* — бот сам получает токен и обновляет его автоматически, "
+    "больше ничего вставлять не нужно (данные хранятся только в памяти бота).\n"
+    "🔑 *Токен вручную* — вставляете access token сами; его придётся обновлять примерно раз в час."
+)
 
 
 def months_next_12() -> List[Tuple[int, int, str]]:
@@ -159,22 +409,194 @@ def chunk_buttons(buttons: List[InlineKeyboardButton], row: int = 2) -> List[Lis
     return rows
 
 
+def _norm(s: Optional[str]) -> str:
+    """Uppercase + accent-stripped form for accent-insensitive substring search."""
+    s = s or ""
+    s = unicodedata.normalize("NFD", s)
+    s = "".join(c for c in s if unicodedata.category(c) != "Mn")
+    return s.upper()
+
+
+def filter_indices(items: List[str], query: str) -> List[int]:
+    """Indices of items where every whitespace-separated token of query is a
+    substring (accent-insensitive). Empty query keeps everything."""
+    tokens = _norm(query).split()
+    if not tokens:
+        return list(range(len(items)))
+    out = []
+    for i, it in enumerate(items):
+        n = _norm(it)
+        if all(tok in n for tok in tokens):
+            out.append(i)
+    return out
+
+
+def build_list_markup(
+    items: List[str],
+    indices: List[int],
+    item_cb: str,
+    page: int,
+    page_cb: str,
+    tail_rows: List[List[InlineKeyboardButton]],
+) -> Tuple[InlineKeyboardMarkup, int, int]:
+    """Render a single page of a (possibly filtered) list as one-button rows,
+    plus a paging row when needed. Returns (markup, page, pages)."""
+    total = len(indices)
+    pages = max(1, (total + CHOICE_PAGE_SIZE - 1) // CHOICE_PAGE_SIZE)
+    page = max(0, min(page, pages - 1))
+    window = indices[page * CHOICE_PAGE_SIZE:(page + 1) * CHOICE_PAGE_SIZE]
+
+    rows: List[List[InlineKeyboardButton]] = [
+        [InlineKeyboardButton(items[i], callback_data=f"{item_cb}:{i}")] for i in window
+    ]
+
+    nav: List[InlineKeyboardButton] = []
+    if page > 0:
+        nav.append(InlineKeyboardButton("◀️", callback_data=f"{page_cb}:{page - 1}"))
+    if pages > 1:
+        nav.append(InlineKeyboardButton(f"{page + 1}/{pages}", callback_data="noop"))
+    if page < pages - 1:
+        nav.append(InlineKeyboardButton("▶️", callback_data=f"{page_cb}:{page + 1}"))
+    if nav:
+        rows.append(nav)
+
+    rows.extend(tail_rows)
+    return InlineKeyboardMarkup(rows), page, pages
+
+
+def specialty_view(user: UserState, page: int) -> Tuple[str, InlineKeyboardMarkup]:
+    w = user.wizard
+    idxs = filter_indices(w.spec_list, w.spec_query)
+    if not idxs:
+        markup = InlineKeyboardMarkup([
+            [InlineKeyboardButton("📖 Показать все A→Z", callback_data="wiz:specall")],
+            [InlineKeyboardButton("🏠 В основное меню", callback_data="nav:home")],
+        ])
+        return (
+            f"По запросу «{w.spec_query}» ничего не найдено.\n"
+            "Попробуйте другое слово или откройте полный список.",
+            markup,
+        )
+    tail = [
+        [InlineKeyboardButton("🔎 Искать заново", callback_data="wiz:specfind")],
+        [InlineKeyboardButton("🏠 В основное меню", callback_data="nav:home")],
+    ]
+    markup, page, pages = build_list_markup(w.spec_list, idxs, "wiz:speci", page, "wiz:specpage", tail)
+    if w.spec_query:
+        head = f"🔎 «{w.spec_query}» — найдено {len(idxs)}"
+    else:
+        head = f"📖 Все специальности A→Z ({len(idxs)})"
+    if pages > 1:
+        head += f" · стр. {page + 1}/{pages}"
+    return head + ":", markup
+
+
+def doctor_view(user: UserState, page: int) -> Tuple[str, InlineKeyboardMarkup]:
+    w = user.wizard
+    idxs = filter_indices(w.doc_list, w.doc_query)
+    esp = w.selected_especialidad or ""
+    if not idxs:
+        markup = InlineKeyboardMarkup([
+            [InlineKeyboardButton("📖 Показать всех", callback_data="wiz:docall")],
+            [InlineKeyboardButton("⬅️ Назад", callback_data="nav:back")],
+            [InlineKeyboardButton("🏠 В основное меню", callback_data="nav:home")],
+        ])
+        return (
+            f"Специальность: {esp}\n\n"
+            f"По запросу «{w.doc_query}» врач не найден. Попробуйте иначе или откройте список.",
+            markup,
+        )
+    tail = [
+        [InlineKeyboardButton("🔎 Искать заново", callback_data="wiz:docfind")],
+        [InlineKeyboardButton("⬅️ Назад", callback_data="nav:back")],
+        [InlineKeyboardButton("🏠 В основное меню", callback_data="nav:home")],
+    ]
+    markup, page, pages = build_list_markup(w.doc_list, idxs, "wiz:doci", page, "wiz:docpage", tail)
+    head = f"Специальность: {esp}\n\n"
+    if w.doc_query:
+        head += f"🔎 «{w.doc_query}» — найдено {len(idxs)}"
+    else:
+        head += f"Выберите врача ({len(idxs)})"
+    if pages > 1:
+        head += f" · стр. {page + 1}/{pages}"
+    return head + ":", markup
+
+
 # =========================
 # START / SETUP
 # =========================
+
+async def send_auth_setup(chat) -> None:
+    await chat.send_message(AUTH_INTRO, parse_mode="Markdown", reply_markup=auth_mode_keyboard())
+
+
+async def present_patient_selection(send, user: UserState, token: str) -> bool:
+    """Fetch the account's patients and either auto-select (single) or show
+    name buttons. `send` is an async callable(text, reply_markup=None).
+    Returns True when a patient is selected or the chooser is shown.
+    """
+    patients = fetch_patients(token)
+    if not patients:
+        await send("Не удалось получить список пациентов. Войдите заново: /login.")
+        return False
+    if len(patients) == 1:
+        p = patients[0]
+        user.paciente = p["paciente"]
+        user.plan = p.get("plan", 94)
+        user.pending_patients = None
+        user.auth_fail_count = 0
+        await send(
+            f"Готово, мониторю за: {p['nombre']}.\n/new — создать задание\n/tasks — управление заданиями",
+            reply_markup=main_menu_keyboard(),
+        )
+        return True
+    user.pending_patients = patients
+    buttons = [
+        InlineKeyboardButton(p["nombre"], callback_data=f"pat:{p['paciente']}")
+        for p in patients
+    ]
+    markup = InlineKeyboardMarkup(
+        chunk_buttons(buttons, row=1) + [[InlineKeyboardButton("🏠 В основное меню", callback_data="nav:home")]]
+    )
+    await send("За кого мониторим запись?", reply_markup=markup)
+    return True
+
+
+def _reset_active_task_auth_failures(user: UserState) -> None:
+    for task in user.tasks.values():
+        if task.active:
+            task.auth_fail_count = 0
+
+
+async def _reprompt_manual_token(send, user: UserState) -> None:
+    """Clear a bad manual token and keep the user in token-entry mode."""
+    if user.usuario and user.password:
+        return
+    user.token = None
+    user.paciente = None
+    user.pending_patients = None
+    user.awaiting = "token"
+    user.auth_fail_count = 0
+    await send("Token не принят. Пришлите новый access token (Bearer) или войдите по логину через /login.")
+
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
     user = get_user(uid)
 
-    if user.paciente is None:
-        user.awaiting = "paciente"
-        await update.effective_chat.send_message("Введите номер пациента (paciente):")
+    if not has_auth(user):
+        user.awaiting = None
+        await send_auth_setup(update.effective_chat)
         return
 
-    if user.token is None:
-        user.awaiting = "token"
-        await update.effective_chat.send_message("Введите актуальный access token (Bearer):")
+    token = ensure_token(user)
+    if token is None:
+        await send_auth_setup(update.effective_chat)
+        return
+
+    if user.paciente is None:
+        if not await present_patient_selection(update.effective_chat.send_message, user, token):
+            await _reprompt_manual_token(update.effective_chat.send_message, user)
         return
 
     await update.effective_chat.send_message(
@@ -183,27 +605,89 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
+async def cmd_login(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Re-run authorization (switch account / update password / paste new token)."""
+    uid = update.effective_user.id
+    user = get_user(uid)
+    user.token = None
+    user.usuario = None
+    user.password = None
+    user.paciente = None
+    user.plan = 94
+    user.pending_patients = None
+    user.auth_fail_count = 0
+    user.awaiting = None
+    await send_auth_setup(update.effective_chat)
+
+
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
     user = get_user(uid)
     text = (update.message.text or "").strip()
 
-    if user.awaiting == "paciente":
-        if not text.isdigit():
-            await update.effective_chat.send_message("paciente должен быть числом. Введите paciente:")
+    if user.awaiting == "usuario":
+        user.usuario = text
+        user.awaiting = "password"
+        await update.effective_chat.send_message(
+            "Введите пароль от портала.\n"
+            "🔒 Сообщение с паролем я сразу удалю; пароль храню только в памяти для обновления токена."
+        )
+        return
+
+    if user.awaiting == "password":
+        password = text
+        # Remove the plaintext password message from the chat history.
+        try:
+            await update.message.delete()
+        except Exception:
+            pass
+        await update.effective_chat.send_message("Проверяю доступ к порталу…")
+        try:
+            token = ha_login(user.usuario or "", password)
+        except AuthError as e:
+            user.awaiting = "usuario"
+            await update.effective_chat.send_message(
+                f"❌ {e.message}\nВведите номер документа (DNI) ещё раз:"
+            )
             return
-        user.paciente = int(text)
-        user.awaiting = "token"
-        await update.effective_chat.send_message("Введите актуальный access token (Bearer):")
+        except Exception as e:
+            user.awaiting = None
+            await update.effective_chat.send_message(
+                f"Не удалось связаться с порталом: {e}\nПопробуйте позже или /login."
+            )
+            return
+        user.password = password
+        user.token = token
+        user.awaiting = None
+        user.auth_fail_count = 0
+        _reset_active_task_auth_failures(user)
+        await present_patient_selection(update.effective_chat.send_message, user, token)
         return
 
     if user.awaiting == "token":
         user.token = text
         user.awaiting = None
-        await update.effective_chat.send_message(
-            "Готово.\n/new — создать задание\n/tasks — управление заданиями",
-            reply_markup=main_menu_keyboard(),
-        )
+        user.auth_fail_count = 0
+        _reset_active_task_auth_failures(user)
+        token = ensure_token(user)
+        if not token:
+            await _reprompt_manual_token(update.effective_chat.send_message, user)
+            return
+        if not await present_patient_selection(update.effective_chat.send_message, user, token):
+            await _reprompt_manual_token(update.effective_chat.send_message, user)
+        return
+
+    # Free-text acts as a live filter while choosing a specialty or a doctor.
+    if user.wizard and user.wizard.step == "specialty":
+        user.wizard.spec_query = text
+        head, markup = specialty_view(user, 0)
+        await update.effective_chat.send_message(head, reply_markup=markup)
+        return
+
+    if user.wizard and user.wizard.step == "doctor":
+        user.wizard.doc_query = text
+        head, markup = doctor_view(user, 0)
+        await update.effective_chat.send_message(head, reply_markup=markup)
         return
 
     await update.effective_chat.send_message(
@@ -220,21 +704,37 @@ async def cmd_new(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
     user = get_user(uid)
 
-    if user.paciente is None:
-        user.awaiting = "paciente"
-        await update.effective_chat.send_message("Введите номер пациента (paciente):")
+    if not has_auth(user):
+        await send_auth_setup(update.effective_chat)
         return
-    if user.token is None:
-        user.awaiting = "token"
-        await update.effective_chat.send_message("Введите актуальный access token (Bearer):")
+
+    token = ensure_token(user)
+    if token is None:
+        user.awaiting = "usuario"
+        await update.effective_chat.send_message(
+            "❌ Не удалось войти с сохранёнными данными портала (возможно, изменился пароль).\n"
+            "Введите номер документа (DNI) заново:"
+        )
+        return
+
+    if user.paciente is None:
+        if not await present_patient_selection(update.effective_chat.send_message, user, token):
+            await _reprompt_manual_token(update.effective_chat.send_message, user)
         return
 
     try:
-        referencias = fetch_referencias(user.token)
-    except requests.HTTPError as e:
-        await update.effective_chat.send_message(f"Ошибка запроса especialidades (HTTP). {e}")
-        return
+        referencias = fetch_referencias(token)
     except Exception as e:
+        if _is_invalid_token_error(e):
+            user.token = None
+            if user.usuario and user.password:
+                await update.effective_chat.send_message("Токен истёк, обновил его. Повторите /new.")
+            else:
+                user.awaiting = "token"
+                await update.effective_chat.send_message(
+                    "❌ Token недействителен/истёк. Пришлите новый access token (Bearer) или войдите по логину /login."
+                )
+            return
         await update.effective_chat.send_message(f"Ошибка запроса especialidades. {e}")
         return
 
@@ -251,17 +751,16 @@ async def cmd_new(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user.wizard.history = []
     user.wizard.spec_list = especialidades
     user.wizard.doc_list = []
+    user.wizard.spec_query = ""
 
-    buttons = [
-        InlineKeyboardButton(es, callback_data=f"wiz:speci:{i}")
-        for i, es in enumerate(especialidades)
-    ]
-    markup = InlineKeyboardMarkup(chunk_buttons(buttons, row=1) + [
-        [InlineKeyboardButton("🏠 В основное меню", callback_data="nav:home")]
+    markup = InlineKeyboardMarkup([
+        [InlineKeyboardButton("📖 Показать все A→Z", callback_data="wiz:specall")],
+        [InlineKeyboardButton("🏠 В основное меню", callback_data="nav:home")],
     ])
-
     await update.effective_chat.send_message(
-        "Выберите специальность для мониторинга:",
+        "Выберите специальность для мониторинга.\n\n"
+        "🔎 Напишите название или его часть (например: oftal, trauma, cardio) — покажу совпадения.\n"
+        "Или откройте полный список по алфавиту.",
         reply_markup=markup,
     )
 
@@ -303,11 +802,55 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     data = q.data or ""
 
+    if data == "noop":
+        return
+
     if data == "main:new":
         await cmd_new(update, context)
         return
     if data == "main:tasks":
         await cmd_tasks(update, context)
+        return
+
+    if data == "auth:login":
+        user.token = None
+        user.paciente = None
+        user.plan = 94
+        user.pending_patients = None
+        user.auth_fail_count = 0
+        user.awaiting = "usuario"
+        await q.message.reply_text("Введите номер документа (DNI / usuario) для входа на портал:")
+        return
+    if data == "auth:token":
+        user.token = None
+        user.usuario = None
+        user.password = None
+        user.paciente = None
+        user.plan = 94
+        user.pending_patients = None
+        user.auth_fail_count = 0
+        user.awaiting = "token"
+        await q.message.reply_text("Введите актуальный access token (Bearer):")
+        return
+
+    if data.startswith("pat:"):
+        try:
+            pid = int(data.split(":", 1)[1])
+        except ValueError:
+            await q.message.reply_text("Некорректный выбор пациента. Отправьте /start.")
+            return
+        chosen = next((p for p in (user.pending_patients or []) if p.get("paciente") == pid), None)
+        if chosen is None:
+            await q.message.reply_text("Список пациентов устарел. Отправьте /start, чтобы выбрать пациента.")
+            return
+        user.paciente = chosen["paciente"]
+        user.plan = chosen.get("plan", 94)
+        user.pending_patients = None
+        user.auth_fail_count = 0
+        await q.message.reply_text(
+            f"Готово, мониторю за: {chosen['nombre']}.\n/new — создать задание\n/tasks — управление заданиями",
+            reply_markup=main_menu_keyboard(),
+        )
         return
 
     if data == "nav:home":
@@ -366,6 +909,68 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await q.message.reply_text("Задание отменено.")
         return
 
+    # ----- specialty browsing (paging / show-all / re-search) -----
+    if data == "wiz:specall" or data.startswith("wiz:specpage:"):
+        if not user.wizard or user.wizard.step != "specialty":
+            await q.message.reply_text("Сессия выбора устарела. Нажмите /new заново.")
+            return
+        if data == "wiz:specall":
+            user.wizard.spec_query = ""
+            page = 0
+        else:
+            page = int(data.split(":", 2)[2])
+        head, markup = specialty_view(user, page)
+        await _edit_or_reply(q, head, markup)
+        return
+
+    if data == "wiz:specfind":
+        if not user.wizard or user.wizard.step != "specialty":
+            await q.message.reply_text("Сессия выбора устарела. Нажмите /new заново.")
+            return
+        user.wizard.spec_query = ""
+        markup = InlineKeyboardMarkup([
+            [InlineKeyboardButton("📖 Показать все A→Z", callback_data="wiz:specall")],
+            [InlineKeyboardButton("🏠 В основное меню", callback_data="nav:home")],
+        ])
+        await _edit_or_reply(
+            q,
+            "🔎 Напишите название специальности или его часть (например: oftal).\n"
+            "Или откройте полный список по алфавиту.",
+            markup,
+        )
+        return
+
+    # ----- doctor browsing -----
+    if data == "wiz:docall" or data.startswith("wiz:docpage:"):
+        if not user.wizard or user.wizard.step != "doctor":
+            await q.message.reply_text("Сессия выбора устарела. Нажмите /new заново.")
+            return
+        if data == "wiz:docall":
+            user.wizard.doc_query = ""
+            page = 0
+        else:
+            page = int(data.split(":", 2)[2])
+        head, markup = doctor_view(user, page)
+        await _edit_or_reply(q, head, markup)
+        return
+
+    if data == "wiz:docfind":
+        if not user.wizard or user.wizard.step != "doctor":
+            await q.message.reply_text("Сессия выбора устарела. Нажмите /new заново.")
+            return
+        user.wizard.doc_query = ""
+        markup = InlineKeyboardMarkup([
+            [InlineKeyboardButton("📖 Показать всех", callback_data="wiz:docall")],
+            [InlineKeyboardButton("⬅️ Назад", callback_data="nav:back")],
+            [InlineKeyboardButton("🏠 В основное меню", callback_data="nav:home")],
+        ])
+        await _edit_or_reply(
+            q,
+            "🔎 Напишите фамилию врача или её часть.\nИли откройте полный список.",
+            markup,
+        )
+        return
+
     if data.startswith("wiz:speci:"):
         if not user.wizard or user.wizard.step != "specialty":
             await q.message.reply_text("Сессия выбора устарела. Нажмите /new заново.")
@@ -385,11 +990,14 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "selected_cod_instancia": user.wizard.selected_cod_instancia,
             "spec_list": user.wizard.spec_list,
             "doc_list": user.wizard.doc_list,
+            "spec_query": user.wizard.spec_query,
+            "doc_query": user.wizard.doc_query,
             "step": user.wizard.step,
         }))
 
         user.wizard.selected_especialidad = selected
         user.wizard.step = "doctor"
+        user.wizard.doc_query = ""
         await render_wizard_step(q, user)
         return
 
@@ -411,6 +1019,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "selected_cod_instancia": user.wizard.selected_cod_instancia,
             "spec_list": user.wizard.spec_list,
             "doc_list": user.wizard.doc_list,
+            "spec_query": user.wizard.spec_query,
+            "doc_query": user.wizard.doc_query,
             "step": user.wizard.step,
         }))
 
@@ -439,6 +1049,10 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data.startswith("wiz:month:"):
         if not user.wizard or user.wizard.step != "month":
             await q.message.reply_text("Сессия выбора устарела. Нажмите /new заново.")
+            return
+        if user.paciente is None:
+            user.wizard = None
+            await q.message.reply_text("Сначала выберите пациента через /start, затем создайте задание заново.")
             return
 
         _, _, m_str, y_str = data.split(":")
@@ -470,6 +1084,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             cod_instancia=user.wizard.selected_cod_instancia or 0,
             month=m,
             year=y,
+            paciente=int(user.paciente),
+            plan=int(user.plan or 94),
             agenda_nombres=agenda_nombres,
         )
         user.tasks[task_id] = t
@@ -486,9 +1102,26 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await q.message.reply_text("Неизвестное действие. Используйте /new или /tasks.", reply_markup=main_menu_keyboard())
 
 
+async def _edit_or_reply(q, text: str, markup: InlineKeyboardMarkup) -> None:
+    """Edit the message that carried the buttons (keeps the list in place); fall
+    back to a new message if the edit is rejected (e.g. identical content)."""
+    try:
+        await q.edit_message_text(text, reply_markup=markup)
+    except Exception:
+        try:
+            await q.message.reply_text(text, reply_markup=markup)
+        except Exception:
+            pass
+
+
 async def render_wizard_step(q, user: UserState):
     if not user.wizard:
         await q.message.reply_text("Сессия выбора отсутствует. /new")
+        return
+
+    if user.wizard.step == "specialty":
+        head, markup = specialty_view(user, 0)
+        await q.message.reply_text(head, reply_markup=markup)
         return
 
     if user.wizard.step == "doctor":
@@ -504,22 +1137,8 @@ async def render_wizard_step(q, user: UserState):
             return
 
         user.wizard.doc_list = descs
-
-        buttons = [
-            InlineKeyboardButton(d, callback_data=f"wiz:doci:{i}")
-            for i, d in enumerate(descs)
-        ]
-        markup = InlineKeyboardMarkup(
-            chunk_buttons(buttons, row=1) + [
-                [InlineKeyboardButton("⬅️ Назад", callback_data="nav:back")],
-                [InlineKeyboardButton("🏠 В основное меню", callback_data="nav:home")],
-            ]
-        )
-
-        await q.message.reply_text(
-            f"Специальность: {esp}\n\nВыберите врача (descripcion):",
-            reply_markup=markup,
-        )
+        head, markup = doctor_view(user, 0)
+        await q.message.reply_text(head, reply_markup=markup)
         return
 
     if user.wizard.step == "month":
@@ -580,66 +1199,88 @@ def _matches_by_tokens(target_name: str, agenda_name: Optional[str]) -> bool:
     return True
 
 
+async def _prompt_reauth(uid: int, user: UserState, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Ask the user to re-authorize when no token can be obtained. No-op if the
+    user is already mid-input, so a background poll never clobbers an in-progress
+    onboarding step or spams the same prompt every cycle."""
+    if user.awaiting:
+        return
+    if user.usuario and user.password:
+        user.awaiting = "usuario"
+        msg = ("❌ Не удалось войти с сохранёнными данными портала (возможно, изменился пароль).\n"
+               "Введите номер документа (DNI) заново, чтобы продолжить мониторинг:")
+    else:
+        user.awaiting = "token"
+        msg = "Требуется авторизация для мониторинга. Отправьте /login, чтобы войти по логину или прислать токен."
+    try:
+        await context.bot.send_message(uid, msg)
+    except Exception:
+        pass
+
+
+def _is_invalid_token_error(e: Exception) -> bool:
+    """A 401 (or explicit 'Invalid token' body) means the token must be refreshed.
+    requests' HTTPError string is '401 Client Error: ...' without the body, so we
+    check the response status explicitly."""
+    resp = getattr(e, "response", None)
+    if resp is not None and getattr(resp, "status_code", None) == 401:
+        return True
+    body = ""
+    if resp is not None:
+        try:
+            body = resp.text or ""
+        except Exception:
+            body = ""
+    return "Invalid token" in body or "Invalid token" in str(e)
+
+
 async def check_task_once(uid: int, user: UserState, t: Task, context: ContextTypes.DEFAULT_TYPE):
     if not t.active:
         return
 
-    if user.paciente is None:
-        user.awaiting = "paciente"
-        try:
-            await context.bot.send_message(uid, "Введите номер пациента (paciente), чтобы продолжить мониторинг.")
-        except Exception:
-            pass
+    if t.auth_fail_count >= AUTH_FAIL_CAP:
+        return  # paused after repeated rejections; user must re-authorize or recreate
+
+    token = ensure_token(user)
+    if token is None:
+        await _prompt_reauth(uid, user, context)
         return
 
-    if user.token is None:
-        user.awaiting = "token"
-        try:
-            await context.bot.send_message(uid, "Требуется актуальный access token (Bearer) для продолжения мониторинга. Пришлите token.")
-        except Exception:
-            pass
-        return
+    if getattr(t, "paciente", None) is None:
+        return  # legacy in-memory task without a patient snapshot
 
     payload = {
         "codAcme": int(t.cod_acme) if str(t.cod_acme).isdigit() else t.cod_acme,
         "codInstancia": int(t.cod_instancia),
         "agendaId": None,
         "fecha": make_fecha_first_of_month(t.month, t.year),
-        "paciente": int(user.paciente),
+        "paciente": int(t.paciente),
         "banda": "O",
         "tipoArea": "IEC",
         "institucion": 50,
-        "plan": 94,
+        "plan": int(t.plan or 94),
     }
 
     try:
-        resp = fetch_turnos(user.token, payload)
+        resp = fetch_turnos(token, payload)
     except Exception as e:
-        if "Invalid token" in str(e):
-            user.token = None
-            user.awaiting = "token"
-            try:
-                await context.bot.send_message(uid, "❌ Token недействителен/истёк. Пришлите новый access token (Bearer), чтобы продолжить мониторинг.")
-            except Exception:
-                pass
+        if _is_invalid_token_error(e):
+            await _handle_invalid_token(uid, user, t, context)
             return
         log.warning("Error polling task %s for user %s: %s", t.task_id, uid, e)
         return
 
     if isinstance(resp, dict) and resp.get("errorMessage") == "Invalid token":
-        user.token = None
-        user.awaiting = "token"
-        try:
-            await context.bot.send_message(uid, "❌ Token недействителен/истёк. Пришлите новый access token (Bearer), чтобы продолжить мониторинг.")
-        except Exception:
-            pass
+        await _handle_invalid_token(uid, user, t, context)
         return
-
-    # ====== CHANGE #1 (Log response) ======
-    log.info("[HA API] RESP %s", resp)
 
     if not isinstance(resp, list):
+        log.info("[HA API] RESP non-list")
         return
+
+    # A valid slot list means the token + patient are accepted again.
+    t.auth_fail_count = 0
+    log.info("[HA API] RESP %d slots", len(resp))
 
     for slot in resp:
         if not isinstance(slot, dict):
@@ -677,26 +1318,64 @@ async def check_task_once(uid: int, user: UserState, t: Task, context: ContextTy
             pass
 
 
+async def _handle_invalid_token(uid: int, user: UserState, t: Task, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Portal rejected the token/patient mid-flight. Credential users self-heal by
+    re-logging in next cycle, but only up to AUTH_FAIL_CAP consecutive failures —
+    then the affected task is paused and the user is told once, so one persistent
+    401 can't loop silently forever or be reset by another successful task.
+    Manual-token users are asked for a fresh token immediately (once)."""
+    user.token = None
+    t.auth_fail_count += 1
+
+    if user.usuario and user.password:
+        if t.auth_fail_count < AUTH_FAIL_CAP:
+            log.info("[AUTH] token rejected; re-login from stored credentials (%d/%d)",
+                     t.auth_fail_count, AUTH_FAIL_CAP)
+            return
+        if t.auth_fail_count == AUTH_FAIL_CAP:
+            t.active = False
+            try:
+                await context.bot.send_message(
+                    uid,
+                    "❌ Портал повторно отклоняет запрос — это задание приостановлено.\n"
+                    "Войдите заново через /login или пересоздайте задание /new.",
+                )
+            except Exception:
+                pass
+        return
+
+    # manual token: cannot self-heal — ask once for a new token
+    if t.auth_fail_count == 1:
+        user.awaiting = "token"
+        try:
+            await context.bot.send_message(
+                uid,
+                "❌ Token недействителен/истёк. Пришлите новый access token (Bearer) "
+                "или войдите по логину через /login, чтобы продолжить мониторинг.",
+            )
+        except Exception:
+            pass
+    elif t.auth_fail_count >= AUTH_FAIL_CAP:
+        t.active = False
+        try:
+            await context.bot.send_message(
+                uid,
+                "❌ Портал повторно отклоняет token для этого задания — задание приостановлено.\n"
+                "Пришлите новый token или войдите через /login, затем создайте задание заново.",
+            )
+        except Exception:
+            pass
+
+
 async def poll_tasks(context: ContextTypes.DEFAULT_TYPE):
     for uid, user in USERS.items():
         active_tasks = [t for t in user.tasks.values() if t.active]
         if not active_tasks:
             continue
 
-        if user.paciente is None:
-            user.awaiting = "paciente"
-            try:
-                await context.bot.send_message(uid, "Введите номер пациента (paciente), чтобы продолжить мониторинг.")
-            except Exception:
-                pass
-            continue
-
-        if user.token is None:
-            user.awaiting = "token"
-            try:
-                await context.bot.send_message(uid, "Требуется актуальный access token (Bearer) для продолжения мониторинга. Пришлите token.")
-            except Exception:
-                pass
+        token = ensure_token(user)
+        if token is None:
+            await _prompt_reauth(uid, user, context)
             continue
 
         for t in active_tasks:
@@ -711,6 +1390,7 @@ def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("login", cmd_login))
     app.add_handler(CommandHandler("new", cmd_new))
     app.add_handler(CommandHandler("tasks", cmd_tasks))
 
