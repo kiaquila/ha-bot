@@ -27,6 +27,23 @@ from `origin main`, install Python dependencies, and restart the worker service.
 Runtime secrets such as the Telegram bot token stay on the host or in the
 service manager; they are not stored in the repository.
 
+## Runtime Persistence (optional)
+
+The worker can persist encrypted state (credentials, selected patient, active
+tasks) so monitoring survives a restart. Configure these as host/service-manager
+environment variables — not GitHub Actions secrets and never committed:
+
+- `HA_CRED_KEY`: url-safe base64 32-byte Fernet key. When set, the bot encrypts
+  state at rest with it; when unset, the bot runs in memory only (state lost on
+  restart). Generate with
+  `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`.
+- `HA_STATE_PATH` (optional): path to the encrypted state file (default
+  `ha_state.enc`). Point it at a directory that persists across deploys and
+  restarts. The default deploy resets the clone with `git reset --hard` (which
+  keeps untracked files), but a path outside the checkout is safest. Rotating or
+  losing `HA_CRED_KEY` makes an existing state file unreadable; the bot then
+  starts empty and users re-authorize.
+
 The remote host does not need a persistent GitHub deploy key. During deployment,
 the workflow fetches the repository over HTTPS with the job-scoped
 `GITHUB_TOKEN`, then resets the remote clone to the pushed SHA.

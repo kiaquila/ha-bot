@@ -12,6 +12,7 @@ from datetime import datetime
 from typing import Dict, List, Optional, Tuple, Any
 
 import requests
+from cryptography.fernet import Fernet, InvalidToken
 from telegram import (
     Update,
     InlineKeyboardButton,
@@ -61,6 +62,29 @@ HEADERS_BASE = {
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("ha_bot")
+
+# Optional encrypted on-disk persistence (feature 005). Enabled only when
+# HA_CRED_KEY holds a valid Fernet key; otherwise the bot runs in-memory only
+# (identical to pre-005 behavior). The key material and file contents are never
+# logged.
+HA_CRED_KEY = os.environ.get("HA_CRED_KEY", "").strip()
+HA_STATE_PATH = os.environ.get("HA_STATE_PATH", "ha_state.enc").strip() or "ha_state.enc"
+
+
+def _init_state_cipher() -> Optional[Fernet]:
+    if not HA_CRED_KEY:
+        log.info("[STATE] HA_CRED_KEY not set — persistence disabled (in-memory only)")
+        return None
+    try:
+        cipher = Fernet(HA_CRED_KEY.encode("utf-8"))
+    except Exception:
+        log.warning("[STATE] HA_CRED_KEY is not a valid Fernet key — persistence disabled (in-memory only)")
+        return None
+    log.info("[STATE] encrypted persistence enabled")
+    return cipher
+
+
+FERNET: Optional[Fernet] = _init_state_cipher()
 
 
 # =========================
@@ -114,9 +138,11 @@ class UserState:
     paciente: Optional[int] = None
     plan: int = 94
     token: Optional[str] = None
-    # Optional stored portal credentials for automatic token refresh. Kept in
-    # memory only (never written to disk, never logged) — same threat model as
-    # the manually pasted token.
+    # Stored portal credentials for automatic token refresh. Held in memory and,
+    # when HA_CRED_KEY is set, persisted encrypted at rest via the Fernet state
+    # blob (feature 005); memory-only otherwise. Never logged. Unlike the access
+    # token — which is never persisted and is re-derived via ensure_token — these
+    # are written to disk (encrypted) so login survives a restart.
     usuario: Optional[str] = None
     password: Optional[str] = None
     awaiting: Optional[str] = None  # "usuario" | "password" | "token"
@@ -139,6 +165,152 @@ def get_user(uid: int) -> UserState:
 
 def has_auth(user: UserState) -> bool:
     return bool(user.token) or bool(user.usuario and user.password)
+
+
+# =========================
+# PERSISTENCE (encrypted state at rest — feature 005)
+# =========================
+#
+# The whole state record (credentials + paciente + active tasks) is serialized to
+# JSON and encrypted as one Fernet blob, so usuario/password are never on disk in
+# plaintext and the paciente/task data are protected at rest too. The access token
+# is intentionally NOT persisted: it is re-derived via ensure_token() on the next
+# poll from the stored credentials, keeping the shortest-lived secret ephemeral.
+
+STATE_VERSION = 1
+
+
+def _task_to_dict(t: Task) -> Dict[str, Any]:
+    return {
+        "task_id": t.task_id,
+        "especialidad": t.especialidad,
+        "agenda_nombre": t.agenda_nombre,
+        "cod_acme": t.cod_acme,
+        "cod_instancia": t.cod_instancia,
+        "month": t.month,
+        "year": t.year,
+        "paciente": t.paciente,
+        "plan": t.plan,
+        # `notified` is a set (not JSON-serializable); store as a sorted list.
+        "notified": sorted(t.notified),
+        "active": t.active,
+        "agenda_nombres": t.agenda_nombres,
+    }
+
+
+def _task_from_dict(d: Dict[str, Any]) -> Task:
+    return Task(
+        task_id=str(d["task_id"]),
+        especialidad=d.get("especialidad", ""),
+        agenda_nombre=d.get("agenda_nombre", ""),
+        cod_acme=str(d.get("cod_acme", "")),
+        cod_instancia=int(d.get("cod_instancia", 0)),
+        month=int(d["month"]),
+        year=int(d["year"]),
+        paciente=int(d["paciente"]),
+        plan=int(d.get("plan", 94)),
+        notified=set(d.get("notified") or []),
+        active=bool(d.get("active", True)),
+        agenda_nombres=d.get("agenda_nombres"),
+    )
+
+
+def serialize_users() -> Dict[str, Any]:
+    """Snapshot durable per-user state. Only active tasks are persisted; the
+    token, wizard, awaiting, and pending_patients are transient and dropped."""
+    users: Dict[str, Any] = {}
+    for uid, user in USERS.items():
+        active_tasks = [t for t in user.tasks.values() if t.active]
+        has_creds = bool(user.usuario and user.password)
+        if not (has_creds or user.paciente is not None or active_tasks):
+            continue
+        users[str(uid)] = {
+            "paciente": user.paciente,
+            "plan": user.plan,
+            "usuario": user.usuario,
+            "password": user.password,
+            "tasks": [_task_to_dict(t) for t in active_tasks],
+        }
+    return {"version": STATE_VERSION, "users": users}
+
+
+def save_state() -> None:
+    """Encrypt and atomically write the current state. No-op without a key."""
+    if FERNET is None:
+        return
+    try:
+        blob = json.dumps(serialize_users(), ensure_ascii=False).encode("utf-8")
+        token = FERNET.encrypt(blob)
+        tmp = f"{HA_STATE_PATH}.tmp"
+        with open(tmp, "wb") as f:
+            f.write(token)
+        os.chmod(tmp, 0o600)
+        os.replace(tmp, HA_STATE_PATH)
+    except Exception as e:
+        # Never surface state contents; a failed save must not crash the bot.
+        log.warning("[STATE] save failed: %s", type(e).__name__)
+
+
+def load_state() -> None:
+    """Decrypt and rehydrate USERS on startup. Tolerates a missing, corrupt, or
+    undecryptable file by starting empty (logged, contents never printed)."""
+    if FERNET is None:
+        return
+    if not os.path.exists(HA_STATE_PATH):
+        return
+    try:
+        with open(HA_STATE_PATH, "rb") as f:
+            data = f.read()
+        parsed = json.loads(FERNET.decrypt(data).decode("utf-8"))
+        if not isinstance(parsed, dict):
+            raise ValueError("state root is not an object")
+        users = parsed.get("users", {})
+        if not isinstance(users, dict):
+            raise ValueError("state users is not an object")
+
+        restored_users: Dict[int, UserState] = {}
+        for uid_str, rec in users.items():
+            try:
+                uid = int(uid_str)
+            except (TypeError, ValueError):
+                continue
+            if not isinstance(rec, dict):
+                continue
+            tasks = rec.get("tasks") or []
+            if not isinstance(tasks, list):
+                raise ValueError("state tasks is not a list")
+            paciente = rec.get("paciente")
+            if paciente is not None:
+                paciente = int(paciente)
+            usuario = rec.get("usuario")
+            password = rec.get("password")
+            if usuario is not None and not isinstance(usuario, str):
+                raise TypeError("state usuario is not a string")
+            if password is not None and not isinstance(password, str):
+                raise TypeError("state password is not a string")
+
+            # token stays None (re-derived via ensure_token); awaiting/wizard/
+            # pending_patients start clean.
+            user = UserState(
+                paciente=paciente,
+                plan=int(rec.get("plan") or 94),
+                usuario=usuario,
+                password=password,
+            )
+            for td in tasks:
+                try:
+                    task = _task_from_dict(td)
+                except (KeyError, TypeError, ValueError):
+                    continue
+                user.tasks[task.task_id] = task
+            restored_users[uid] = user
+        USERS.clear()
+        USERS.update(restored_users)
+    except (InvalidToken, ValueError, TypeError, OSError) as e:
+        USERS.clear()
+        log.warning("[STATE] could not load state (%s); starting empty", type(e).__name__)
+        return
+    log.info("[STATE] restored %d user(s) from disk", len(USERS))
 
 
 # =========================
@@ -383,12 +555,25 @@ def auth_mode_keyboard() -> InlineKeyboardMarkup:
     ])
 
 
-AUTH_INTRO = (
-    "Как авторизуемся на портале Hospital Alemán?\n\n"
-    "🔐 *Логин и пароль* — бот сам получает токен и обновляет его автоматически, "
-    "больше ничего вставлять не нужно (данные хранятся только в памяти бота).\n"
-    "🔑 *Токен вручную* — вставляете access token сами; его придётся обновлять примерно раз в час."
-)
+def credential_storage_notice() -> str:
+    if FERNET is None:
+        return (
+            "Данные для входа храню только в памяти бота для обновления токена; "
+            "после рестарта нужно будет войти заново."
+        )
+    return (
+        "Данные для входа сохраняю в зашифрованном файле состояния "
+        "и использую только для обновления токена."
+    )
+
+
+def auth_intro_text() -> str:
+    return (
+        "Как авторизуемся на портале Hospital Alemán?\n\n"
+        "🔐 *Логин и пароль* — бот сам получает токен и обновляет его автоматически, "
+        f"больше ничего вставлять не нужно. {credential_storage_notice()}\n"
+        "🔑 *Токен вручную* — вставляете access token сами; его придётся обновлять примерно раз в час."
+    )
 
 
 def months_next_12() -> List[Tuple[int, int, str]]:
@@ -527,7 +712,7 @@ def doctor_view(user: UserState, page: int) -> Tuple[str, InlineKeyboardMarkup]:
 # =========================
 
 async def send_auth_setup(chat) -> None:
-    await chat.send_message(AUTH_INTRO, parse_mode="Markdown", reply_markup=auth_mode_keyboard())
+    await chat.send_message(auth_intro_text(), parse_mode="Markdown", reply_markup=auth_mode_keyboard())
 
 
 async def present_patient_selection(send, user: UserState, token: str) -> bool:
@@ -617,6 +802,7 @@ async def cmd_login(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user.pending_patients = None
     user.auth_fail_count = 0
     user.awaiting = None
+    save_state()
     await send_auth_setup(update.effective_chat)
 
 
@@ -630,7 +816,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user.awaiting = "password"
         await update.effective_chat.send_message(
             "Введите пароль от портала.\n"
-            "🔒 Сообщение с паролем я сразу удалю; пароль храню только в памяти для обновления токена."
+            f"🔒 Сообщение с паролем я сразу удалю. {credential_storage_notice()}"
         )
         return
 
@@ -661,7 +847,9 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user.awaiting = None
         user.auth_fail_count = 0
         _reset_active_task_auth_failures(user)
+        save_state()
         await present_patient_selection(update.effective_chat.send_message, user, token)
+        save_state()
         return
 
     if user.awaiting == "token":
@@ -675,6 +863,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         if not await present_patient_selection(update.effective_chat.send_message, user, token):
             await _reprompt_manual_token(update.effective_chat.send_message, user)
+        save_state()
         return
 
     # Free-text acts as a live filter while choosing a specialty or a doctor.
@@ -819,6 +1008,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user.pending_patients = None
         user.auth_fail_count = 0
         user.awaiting = "usuario"
+        save_state()
         await q.message.reply_text("Введите номер документа (DNI / usuario) для входа на портал:")
         return
     if data == "auth:token":
@@ -830,6 +1020,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user.pending_patients = None
         user.auth_fail_count = 0
         user.awaiting = "token"
+        save_state()
         await q.message.reply_text("Введите актуальный access token (Bearer):")
         return
 
@@ -847,6 +1038,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user.plan = chosen.get("plan", 94)
         user.pending_patients = None
         user.auth_fail_count = 0
+        save_state()
         await q.message.reply_text(
             f"Готово, мониторю за: {chosen['nombre']}.\n/new — создать задание\n/tasks — управление заданиями",
             reply_markup=main_menu_keyboard(),
@@ -906,6 +1098,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await q.message.reply_text("Задание не найдено или уже остановлено.")
             return
         t.active = False
+        save_state()
         await q.message.reply_text("Задание отменено.")
         return
 
@@ -1090,6 +1283,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         user.tasks[task_id] = t
         user.wizard = None
+        save_state()
 
         await q.message.reply_text(
             f"✅ Задание создано.\nБуду мониторить:\n{t.especialidad}\n{t.agenda_nombre}\nМесяц: {t.month:02d}.{t.year}",
@@ -1282,6 +1476,7 @@ async def check_task_once(uid: int, user: UserState, t: Task, context: ContextTy
     t.auth_fail_count = 0
     log.info("[HA API] RESP %d slots", len(resp))
 
+    notified_changed = False
     for slot in resp:
         if not isinstance(slot, dict):
             continue
@@ -1307,6 +1502,7 @@ async def check_task_once(uid: int, user: UserState, t: Task, context: ContextTy
             continue
 
         t.notified.add(key)
+        notified_changed = True
         fecha = slot.get("fecha", "")
         hora = slot.get("hora", "")
         try:
@@ -1316,6 +1512,11 @@ async def check_task_once(uid: int, user: UserState, t: Task, context: ContextTy
             )
         except Exception:
             pass
+
+    if notified_changed:
+        # Persist immediately so an already-announced slot is not re-notified
+        # after a restart between poll cycles.
+        save_state()
 
 
 async def _handle_invalid_token(uid: int, user: UserState, t: Task, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1375,11 +1576,16 @@ async def poll_tasks(context: ContextTypes.DEFAULT_TYPE):
 
         token = ensure_token(user)
         if token is None:
+            # ensure_token may have cleared rejected credentials; persist that.
+            save_state()
             await _prompt_reauth(uid, user, context)
             continue
 
         for t in active_tasks:
             await check_task_once(uid, user, t, context)
+
+    # Capture any per-cycle drift (paused tasks, cleared credentials) in one write.
+    save_state()
 
 
 # =========================
@@ -1387,6 +1593,8 @@ async def poll_tasks(context: ContextTypes.DEFAULT_TYPE):
 # =========================
 
 def main():
+    load_state()
+
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
