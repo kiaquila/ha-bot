@@ -96,7 +96,7 @@ Never persisted: `token` (ephemeral, re-derived via `ensure_token`), `wizard`
 
 ## Verification
 
-Evidence: 12/12 tests pass (`python -m unittest tests.test_persistence -v`) and a
+Evidence: 14/14 tests pass (`python3 -m unittest tests.test_persistence -v`) and a
 two-process restart drill using the real `HA_CRED_KEY`-driven path.
 
 | Acceptance criterion | Evidence |
@@ -110,9 +110,11 @@ two-process restart drill using the real `HA_CRED_KEY`-driven path.
 
 Negative scenario evidence:
 
-- Corrupt file / rotated key → `test_corrupt_file_starts_empty`,
-  `test_wrong_key_starts_empty`: `load_state` logs a warning, returns empty, does
-  not raise.
+- Corrupt file / rotated key / malformed decrypted schema →
+  `test_corrupt_file_starts_empty`, `test_wrong_key_starts_empty`,
+  `test_malformed_users_shape_starts_empty`,
+  `test_malformed_user_record_starts_empty`: `load_state` logs a warning,
+  returns empty, does not raise.
 - Atomic write → `test_atomic_write_leaves_no_tmp_file`: after `save_state` the
   live file exists and no `*.tmp` remains (`os.replace` is atomic).
 - Manual-token-only user → `test_manual_token_user_persists_tasks_without_credentials`:

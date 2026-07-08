@@ -5,6 +5,7 @@ Run from the repo root with the project dependencies installed:
     python -m unittest tests.test_persistence -v
 """
 import os
+import json
 import shutil
 import stat
 import sys
@@ -121,6 +122,32 @@ class PersistenceTests(unittest.TestCase):
         bot.FERNET = Fernet(Fernet.generate_key())  # rotated / mismatched key
         bot.USERS.clear()
         bot.load_state()  # InvalidToken tolerated
+        self.assertEqual(bot.USERS, {})
+
+    def test_malformed_users_shape_starts_empty(self):
+        payload = json.dumps({"version": 1, "users": []}).encode("utf-8")
+        with open(self.path, "wb") as f:
+            f.write(bot.FERNET.encrypt(payload))
+        bot.USERS[1] = bot.UserState(paciente=123)
+        bot.load_state()  # must not raise or keep partial in-memory state
+        self.assertEqual(bot.USERS, {})
+
+    def test_malformed_user_record_starts_empty(self):
+        payload = json.dumps({
+            "version": 1,
+            "users": {
+                "42": {
+                    "paciente": 111,
+                    "plan": "not-a-number",
+                    "usuario": "30111222",
+                    "password": "pw",
+                    "tasks": [],
+                }
+            },
+        }).encode("utf-8")
+        with open(self.path, "wb") as f:
+            f.write(bot.FERNET.encrypt(payload))
+        bot.load_state()  # malformed decrypted state is treated as corrupt
         self.assertEqual(bot.USERS, {})
 
     def test_only_active_tasks_persisted(self):

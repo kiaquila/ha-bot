@@ -262,35 +262,55 @@ def load_state() -> None:
         with open(HA_STATE_PATH, "rb") as f:
             data = f.read()
         parsed = json.loads(FERNET.decrypt(data).decode("utf-8"))
-    except (InvalidToken, ValueError, OSError) as e:
+        if not isinstance(parsed, dict):
+            raise ValueError("state root is not an object")
+        users = parsed.get("users", {})
+        if not isinstance(users, dict):
+            raise ValueError("state users is not an object")
+
+        restored_users: Dict[int, UserState] = {}
+        for uid_str, rec in users.items():
+            try:
+                uid = int(uid_str)
+            except (TypeError, ValueError):
+                continue
+            if not isinstance(rec, dict):
+                continue
+            tasks = rec.get("tasks") or []
+            if not isinstance(tasks, list):
+                raise ValueError("state tasks is not a list")
+            paciente = rec.get("paciente")
+            if paciente is not None:
+                paciente = int(paciente)
+            usuario = rec.get("usuario")
+            password = rec.get("password")
+            if usuario is not None and not isinstance(usuario, str):
+                raise TypeError("state usuario is not a string")
+            if password is not None and not isinstance(password, str):
+                raise TypeError("state password is not a string")
+
+            # token stays None (re-derived via ensure_token); awaiting/wizard/
+            # pending_patients start clean.
+            user = UserState(
+                paciente=paciente,
+                plan=int(rec.get("plan") or 94),
+                usuario=usuario,
+                password=password,
+            )
+            for td in tasks:
+                try:
+                    task = _task_from_dict(td)
+                except (KeyError, TypeError, ValueError):
+                    continue
+                user.tasks[task.task_id] = task
+            restored_users[uid] = user
+        USERS.clear()
+        USERS.update(restored_users)
+    except (InvalidToken, ValueError, TypeError, OSError) as e:
+        USERS.clear()
         log.warning("[STATE] could not load state (%s); starting empty", type(e).__name__)
         return
-    users = parsed.get("users", {}) if isinstance(parsed, dict) else {}
-    restored = 0
-    for uid_str, rec in users.items():
-        try:
-            uid = int(uid_str)
-        except (TypeError, ValueError):
-            continue
-        if not isinstance(rec, dict):
-            continue
-        # token stays None (re-derived via ensure_token); awaiting/wizard/
-        # pending_patients start clean.
-        user = UserState(
-            paciente=rec.get("paciente"),
-            plan=int(rec.get("plan") or 94),
-            usuario=rec.get("usuario"),
-            password=rec.get("password"),
-        )
-        for td in rec.get("tasks") or []:
-            try:
-                task = _task_from_dict(td)
-            except (KeyError, TypeError, ValueError):
-                continue
-            user.tasks[task.task_id] = task
-        USERS[uid] = user
-        restored += 1
-    log.info("[STATE] restored %d user(s) from disk", restored)
+    log.info("[STATE] restored %d user(s) from disk", len(USERS))
 
 
 # =========================
@@ -535,12 +555,25 @@ def auth_mode_keyboard() -> InlineKeyboardMarkup:
     ])
 
 
-AUTH_INTRO = (
-    "Как авторизуемся на портале Hospital Alemán?\n\n"
-    "🔐 *Логин и пароль* — бот сам получает токен и обновляет его автоматически, "
-    "больше ничего вставлять не нужно (данные хранятся только в памяти бота).\n"
-    "🔑 *Токен вручную* — вставляете access token сами; его придётся обновлять примерно раз в час."
-)
+def credential_storage_notice() -> str:
+    if FERNET is None:
+        return (
+            "Данные для входа храню только в памяти бота для обновления токена; "
+            "после рестарта нужно будет войти заново."
+        )
+    return (
+        "Данные для входа сохраняю в зашифрованном файле состояния "
+        "и использую только для обновления токена."
+    )
+
+
+def auth_intro_text() -> str:
+    return (
+        "Как авторизуемся на портале Hospital Alemán?\n\n"
+        "🔐 *Логин и пароль* — бот сам получает токен и обновляет его автоматически, "
+        f"больше ничего вставлять не нужно. {credential_storage_notice()}\n"
+        "🔑 *Токен вручную* — вставляете access token сами; его придётся обновлять примерно раз в час."
+    )
 
 
 def months_next_12() -> List[Tuple[int, int, str]]:
@@ -679,7 +712,7 @@ def doctor_view(user: UserState, page: int) -> Tuple[str, InlineKeyboardMarkup]:
 # =========================
 
 async def send_auth_setup(chat) -> None:
-    await chat.send_message(AUTH_INTRO, parse_mode="Markdown", reply_markup=auth_mode_keyboard())
+    await chat.send_message(auth_intro_text(), parse_mode="Markdown", reply_markup=auth_mode_keyboard())
 
 
 async def present_patient_selection(send, user: UserState, token: str) -> bool:
@@ -783,7 +816,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user.awaiting = "password"
         await update.effective_chat.send_message(
             "Введите пароль от портала.\n"
-            "🔒 Сообщение с паролем я сразу удалю; пароль храню только в памяти для обновления токена."
+            f"🔒 Сообщение с паролем я сразу удалю. {credential_storage_notice()}"
         )
         return
 
@@ -814,6 +847,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user.awaiting = None
         user.auth_fail_count = 0
         _reset_active_task_auth_failures(user)
+        save_state()
         await present_patient_selection(update.effective_chat.send_message, user, token)
         save_state()
         return

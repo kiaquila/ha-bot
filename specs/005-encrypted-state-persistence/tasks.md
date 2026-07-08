@@ -43,21 +43,25 @@ Status legend: `[x]` done, `[ ]` pending.
   `docs_project/project/devops/ssh-autodeploy.md` and `README.md`; no real secrets.
 - [x] T017 Add `tests/test_persistence.py` (round-trip incl. `notified` set,
   key-absent, no-plaintext-on-disk, token-not-persisted, corrupt/rotated-key,
-  only-active, manual-token, atomic-write, `0600` file mode, invalid-key disables
-  persistence, `Todos` `agenda_nombres` round-trip).
+  malformed decrypted state shape, only-active, manual-token, atomic-write,
+  `0600` file mode, invalid-key disables persistence, `Todos` `agenda_nombres`
+  round-trip).
 - [x] T018 Bundle the owner-requested `AGENTS.md` Commit Protocol (mandatory
   `Co-authored-by:` trailer on every commit/squash-merge).
+- [x] T019 Address PR #6 Codex review findings: honest credential-storage prompt,
+  malformed decrypted schema starts empty, and successful credentials persist
+  before patient lookup.
 
 ## Verification
 
-- [x] T019 `pnpm run preflight` — all gates pass (feature-memory, repo baseline,
+- [x] T020 `pnpm run preflight` — all gates pass (feature-memory, repo baseline,
   context budget ×2, `py_compile bot.py`).
-- [x] T020 `python -m unittest tests.test_persistence -v` — 12/12 pass.
-- [x] T021 Two-process restart drill with a real `HA_CRED_KEY`: process 1 saves,
+- [x] T021 `python3 -m unittest tests.test_persistence -v` — 14/14 pass.
+- [x] T022 Two-process restart drill with a real `HA_CRED_KEY`: process 1 saves,
   fresh process 2 restores paciente/credentials/task; `token None`; `notified`
   back as a `set`; already-notified slot preserved (no duplicate alert); file has
   no plaintext `usuario`/`password`.
-- [x] T022 `grep` diff for real keys/passwords/tokens/patient identifiers — none.
+- [x] T023 `grep` diff for real keys/passwords/tokens/patient identifiers — none.
 
 ## Process Memory
 
@@ -99,3 +103,7 @@ Status legend: `[x]` done, `[ ]` pending.
   file, but worth revisiting if user/task counts grow substantially.
 - No pytest runner is wired into `pnpm run preflight` (only `py_compile`); the
   persistence tests are run manually and captured as SC-002 evidence.
+- PR #6 Codex review found three P2 issues after the first push. Addressed by
+  making auth prompts reflect encrypted persistence, treating malformed decrypted
+  schema/conversion errors as corrupt state, and saving credentials immediately
+  after successful login before patient lookup.
