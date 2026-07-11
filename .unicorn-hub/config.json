@@ -4,7 +4,12 @@
   "productPaths": [
     "bot.py",
     "requirements.txt",
-    "Procfile.py"
+    "Procfile.py",
+    "Dockerfile",
+    ".dockerignore",
+    "compose.production.yml",
+    "scripts/deploy-production.sh",
+    ".github/workflows/deploy-production.yml"
   ],
   "requiredChecks": [
     "baseline-checks",

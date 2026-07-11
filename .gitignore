@@ -19,3 +19,7 @@ ha_state.enc
 ha_state.enc.tmp
 *.enc
 *.enc.tmp
+# Bind-mounted writable state for the production container.
+runtime-data/
+# Host-only deployment lock and stable-image ledger (never mounted into the bot).
+.deploy-state/

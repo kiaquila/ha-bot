@@ -49,3 +49,79 @@ jobs:
 
       - name: Run bot syntax check
         run: pnpm run check:python
+
+      - name: Run test suite
+        run: pnpm run check:tests
+
+      - name: Lint production deploy script
+        run: shellcheck scripts/deploy-production.sh
+
+      - name: Setup QEMU
+        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - name: Validate production container contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          trap 'rm -f .env' EXIT
+          printf 'BOT_TOKEN=ci-placeholder\n' > .env
+
+          export HA_BOT_IMAGE='ghcr.io/example/ha-bot@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+          export HA_BOT_UID=10001
+          export HA_BOT_GID=10001
+          docker compose --project-name ha-bot --file compose.production.yml config --format json > /tmp/ha-bot-compose.json
+
+          python3 - <<'PY'
+          import json
+
+          with open("/tmp/ha-bot-compose.json", encoding="utf-8") as stream:
+              config = json.load(stream)
+
+          service = config["services"]["bot"]
+          assert "ports" not in service
+          assert "container_name" not in service
+          assert "expose" not in service
+          assert "network_mode" not in service
+          assert service["read_only"] is True
+          assert service["user"] == "10001:10001"
+          assert service["platform"] == "linux/arm64"
+          assert service["pull_policy"] == "never"
+          assert service["networks"] == {"default": None}
+          assert service["cap_drop"] == ["ALL"]
+          assert service["security_opt"] == ["no-new-privileges:true"]
+          assert service["pids_limit"] == 128
+          assert service["cpus"] == 0.5
+          assert service["mem_limit"] == "402653184"
+          assert service["logging"]["options"] == {"max-file": "3", "max-size": "10m"}
+          assert service["volumes"][0]["type"] == "bind"
+          assert service["volumes"][0]["target"] == "/data"
+          assert service["volumes"][0]["bind"]["create_host_path"] is False
+          assert set(config["services"]) == {"bot"}
+          assert set(config["networks"]) == {"default"}
+          assert config["networks"]["default"]["name"] == "ha-bot_default"
+          assert config["networks"]["default"].get("external", False) is False
+          PY
+
+          docker buildx build --check .
+          docker buildx build \
+            --platform linux/arm64 \
+            --label "org.opencontainers.image.revision=${GITHUB_SHA}" \
+            --load \
+            --tag "ha-bot-ci:${GITHUB_SHA}" \
+            .
+
+          test "$(docker image inspect --format '{{.Architecture}}' "ha-bot-ci:${GITHUB_SHA}")" = arm64
+          test "$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "ha-bot-ci:${GITHUB_SHA}")" = "$GITHUB_SHA"
+          docker run --rm \
+            --read-only \
+            --tmpfs /tmp:rw,nosuid,nodev,noexec,size=64m \
+            --cap-drop ALL \
+            --security-opt no-new-privileges \
+            --user 10001:10001 \
+            --env BOT_TOKEN=ci-placeholder \
+            --entrypoint python \
+            "ha-bot-ci:${GITHUB_SHA}" \
+            -c 'import bot'

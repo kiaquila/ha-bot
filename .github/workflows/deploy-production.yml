@@ -46,15 +46,64 @@ jobs:
       - name: Run local guardrails
         run: pnpm run preflight
 
+  build-image:
+    name: build-image
+    if: github.ref == 'refs/heads/main'
+    needs: deploy-preflight
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
+      image: ${{ steps.image.outputs.image }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Resolve image name
+        id: image
+        shell: bash
+        run: echo "image=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+
+      - name: Setup QEMU
+        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Build and push immutable ARM64 image
+        id: build
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          platforms: linux/arm64
+          push: true
+          tags: ${{ steps.image.outputs.image }}:${{ github.sha }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: true
+          sbom: true
+
   production:
     name: production
     if: github.ref == 'refs/heads/main'
-    needs: deploy-preflight
+    needs: build-image
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
       contents: read
-      deployments: write
+      packages: read
     environment:
       name: production
     steps:
@@ -68,7 +117,6 @@ jobs:
           BOTS_SSH_PORT: ${{ secrets.BOTS_SSH_PORT }}
           BOTS_DEPLOY_PATH: ${{ secrets.BOTS_DEPLOY_PATH }}
           BOTS_SYSTEMD_SERVICE: ${{ secrets.BOTS_SYSTEMD_SERVICE }}
-          BOTS_RESTART_COMMAND: ${{ secrets.BOTS_RESTART_COMMAND }}
         run: |
           set -euo pipefail
 
@@ -86,9 +134,7 @@ jobs:
           require_secret "BOTS_SSH_PRIVATE_KEY" "$BOTS_SSH_PRIVATE_KEY"
           require_secret "BOTS_SSH_KNOWN_HOSTS" "$BOTS_SSH_KNOWN_HOSTS"
           require_secret "BOTS_DEPLOY_PATH" "$BOTS_DEPLOY_PATH"
-          if [ -z "$BOTS_RESTART_COMMAND" ]; then
-            require_secret "BOTS_SYSTEMD_SERVICE" "$BOTS_SYSTEMD_SERVICE"
-          fi
+          require_secret "BOTS_SYSTEMD_SERVICE" "$BOTS_SYSTEMD_SERVICE"
 
           if [ "${#missing[@]}" -gt 0 ]; then
             printf "::error::Missing required GitHub secret(s): %s\n" "${missing[*]}"
@@ -134,22 +180,29 @@ jobs:
       - name: Check SSH connectivity
         run: ssh bots true
 
-      - name: Deploy merged main to bots
+      - name: Deploy immutable image to bots
         shell: bash
         env:
           DEPLOY_SHA: ${{ github.sha }}
+          GITHUB_ACTOR: ${{ github.actor }}
           GITHUB_FETCH_TOKEN: ${{ github.token }}
+          GITHUB_REGISTRY_TOKEN: ${{ github.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
+          IMAGE_NAME: ${{ needs.build-image.outputs.image }}
+          IMAGE_DIGEST: ${{ needs.build-image.outputs.digest }}
           BOTS_DEPLOY_PATH: ${{ secrets.BOTS_DEPLOY_PATH }}
           BOTS_SYSTEMD_SERVICE: ${{ secrets.BOTS_SYSTEMD_SERVICE }}
-          BOTS_INSTALL_COMMAND: ${{ secrets.BOTS_INSTALL_COMMAND }}
-          BOTS_RESTART_COMMAND: ${{ secrets.BOTS_RESTART_COMMAND }}
         run: |
           set -euo pipefail
 
           quote() {
             printf "%q" "$1"
           }
+
+          if [[ ! "$IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "::error::Build did not return an immutable image digest."
+            exit 1
+          fi
 
           github_fetch_auth="$(printf "x-access-token:%s" "$GITHUB_FETCH_TOKEN" | base64 | tr -d "\n")"
           if [ -z "$github_fetch_auth" ]; then
@@ -159,21 +212,28 @@ jobs:
 
           remote_env=(
             "DEPLOY_SHA=$(quote "$DEPLOY_SHA")"
+            "GITHUB_ACTOR=$(quote "$GITHUB_ACTOR")"
             "GITHUB_FETCH_URL=$(quote "https://github.com/${GITHUB_REPOSITORY}.git")"
             "GITHUB_FETCH_AUTH_HEADER=$(quote "AUTHORIZATION: Basic $github_fetch_auth")"
+            "GITHUB_REGISTRY_TOKEN=$(quote "$GITHUB_REGISTRY_TOKEN")"
             "DEPLOY_PATH=$(quote "$BOTS_DEPLOY_PATH")"
-            "SERVICE_NAME=$(quote "$BOTS_SYSTEMD_SERVICE")"
-            "INSTALL_COMMAND=$(quote "$BOTS_INSTALL_COMMAND")"
-            "RESTART_COMMAND=$(quote "$BOTS_RESTART_COMMAND")"
+            "HA_BOT_IMAGE=$(quote "${IMAGE_NAME}@${IMAGE_DIGEST}")"
+            "HA_BOT_IMAGE_SOURCE=$(quote "https://github.com/${GITHUB_REPOSITORY}")"
+            "LEGACY_SERVICE=$(quote "$BOTS_SYSTEMD_SERVICE")"
           )
 
-          # shellcheck disable=SC2029
-          ssh bots "${remote_env[*]} bash -se" <<'REMOTE'
+          {
+            printf "%s\n" "${remote_env[@]}"
+            cat <<'REMOTE'
           set -euo pipefail
 
           cd "$DEPLOY_PATH"
           git reset --hard
-          git -c http.extraHeader="$GITHUB_FETCH_AUTH_HEADER" fetch --prune "$GITHUB_FETCH_URL" main
+          GIT_CONFIG_COUNT=1 \
+            GIT_CONFIG_KEY_0=http.extraHeader \
+          GIT_CONFIG_VALUE_0="$GITHUB_FETCH_AUTH_HEADER" \
+            git fetch --prune "$GITHUB_FETCH_URL" main
+          unset GITHUB_FETCH_AUTH_HEADER
           git checkout -B main "$DEPLOY_SHA"
           git reset --hard "$DEPLOY_SHA"
 
@@ -183,16 +243,26 @@ jobs:
             exit 1
           fi
 
-          if [ -n "$INSTALL_COMMAND" ]; then
-            bash -lc "$INSTALL_COMMAND"
-          else
-            python3 -m pip install -r requirements.txt
-          fi
+          umask 077
+          docker_config="$(mktemp -d)"
+          cleanup_registry_auth() {
+            trap - EXIT HUP INT TERM
+            docker --config "$docker_config" logout ghcr.io >/dev/null 2>&1 || true
+            rm -rf "$docker_config"
+          }
+          trap cleanup_registry_auth EXIT
+          trap 'exit 129' HUP
+          trap 'exit 130' INT
+          trap 'exit 143' TERM
 
-          if [ -n "$RESTART_COMMAND" ]; then
-            bash -lc "$RESTART_COMMAND"
-          else
-            sudo systemctl restart "$SERVICE_NAME"
-            sudo systemctl is-active --quiet "$SERVICE_NAME"
-          fi
+          printf "%s" "$GITHUB_REGISTRY_TOKEN" |
+            docker --config "$docker_config" login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+          docker --config "$docker_config" pull "$HA_BOT_IMAGE"
+          unset GITHUB_REGISTRY_TOKEN
+
+          export HA_BOT_UID="$(id -u)"
+          export HA_BOT_GID="$(id -g)"
+          export DEPLOY_SHA HA_BOT_IMAGE HA_BOT_IMAGE_SOURCE LEGACY_SERVICE
+          bash scripts/deploy-production.sh
           REMOTE
+          } | ssh bots bash -se
