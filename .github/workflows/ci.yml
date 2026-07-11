@@ -98,7 +98,7 @@ jobs:
           assert service["logging"]["options"] == {"max-file": "3", "max-size": "10m"}
           assert service["volumes"][0]["type"] == "bind"
           assert service["volumes"][0]["target"] == "/data"
-          assert service["volumes"][0]["bind"]["create_host_path"] is False
+          assert service["volumes"][0].get("bind", {}).get("create_host_path") in (None, False)
           assert set(config["services"]) == {"bot"}
           assert set(config["networks"]) == {"default"}
           assert config["networks"]["default"]["name"] == "ha-bot_default"

@@ -106,7 +106,7 @@ Status legend: `[x]` done, `[ ]` pending.
 
 Local verification evidence (2026-07-10):
 
-- `python3 -m unittest tests.test_deploy_production -v`: 20 tests passed,
+- `python3 -m unittest tests.test_deploy_production -v`: 21 tests passed,
   including fail-closed Docker enumeration, rendered-model rejection,
   pull-before-cutover ordering, signal-safe auth cleanup, no-systemd-rollback,
   foreign-container/network invariants, idempotency, atomic retention, and

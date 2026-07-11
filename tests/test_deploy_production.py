@@ -153,11 +153,12 @@ class DeployProductionTest(unittest.TestCase):
                             "type": "bind",
                             "source": str(Path.cwd() / "runtime-data"),
                             "target": "/data",
-                            "bind": {"create_host_path": False},
                         }],
                     }
                     if state.get("unsafe_compose_ports"):
                         service["ports"] = [{"published": "8000", "target": 8000}]
+                    if state.get("unsafe_compose_create_host_path"):
+                        service["volumes"][0]["bind"] = {"create_host_path": True}
                     print(json.dumps({
                         "services": {"bot": service},
                         "networks": {"default": {"name": "ha-bot_default"}},
@@ -389,6 +390,8 @@ class DeployProductionTest(unittest.TestCase):
         prefix = "docker compose --project-name ha-bot --file compose.production.yml"
         self.assertIn(f"{prefix} config --quiet", log)
         self.assertIn(f"{prefix} up -d --wait --wait-timeout 60", log)
+        self.assertIn("docker network ls --format", log)
+        self.assertNotIn("docker network ls --filter", log)
         self.assertIn("systemctl <disable> <--now> <ha_bot.service>", log)
         self.assertEqual(
             log.count("systemctl <is-active> <ha_bot.service>"), 2
@@ -422,6 +425,18 @@ class DeployProductionTest(unittest.TestCase):
 
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("service key ports is forbidden", result.stderr)
+        self.assertNotIn("systemctl", self._log())
+        self.assertNotIn(" up -d ", self._log())
+
+    def test_compose_cannot_enable_bind_source_creation(self) -> None:
+        current = digest("7")
+        state = self._base_state(current)
+        state["unsafe_compose_create_host_path"] = True
+
+        result = self._run(state, current)
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("must not enable bind source creation", result.stderr)
         self.assertNotIn("systemctl", self._log())
         self.assertNotIn(" up -d ", self._log())
 

@@ -180,7 +180,10 @@ volume = volumes[0]
 require(volume.get("type") == "bind", "runtime storage must be a bind mount")
 require(volume.get("target") == "/data", "runtime storage must mount at /data")
 require(os.path.realpath(volume.get("source", "")) == os.path.realpath(runtime_data), "runtime bind source is unexpected")
-require(volume.get("bind", {}).get("create_host_path") is False, "Compose must not create the bind source")
+# Compose releases differ on whether an explicit false survives JSON rendering.
+# Reject an enabled value; the checked-in model still sets false and the script
+# creates and validates the source directory before Compose is invoked.
+require(volume.get("bind", {}).get("create_host_path") in (None, False), "Compose must not enable bind source creation")
 require(not config.get("volumes"), "named or external volumes are forbidden")
 
 networks = config.get("networks", {})
@@ -223,11 +226,12 @@ done <"$project_containers"
 
 validate_project_network() {
   local require_present="$1"
-  local network_names network_project network_role container_id container_project container_managed
+  local all_network_names network_names network_project network_role container_id container_project container_managed
 
-  if ! network_names="$(docker network ls --filter "name=^${EXPECTED_NETWORK}$" --format '{{.Name}}')"; then
+  if ! all_network_names="$(docker network ls --format '{{.Name}}')"; then
     die 'could not enumerate the HA Bot project network'
   fi
+  network_names="$(printf '%s\n' "$all_network_names" | awk -v expected="$EXPECTED_NETWORK" '$0 == expected')"
   if [[ -z "$network_names" ]]; then
     [[ "$require_present" == false ]] || die "expected network $EXPECTED_NETWORK is missing"
     return
