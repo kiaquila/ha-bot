@@ -77,6 +77,9 @@ class DeployProductionTest(unittest.TestCase):
             for arg in "$@"; do printf ' <%s>' "$arg" >>"$COMMAND_LOG"; done
             printf '\n' >>"$COMMAND_LOG"
             if [ "$1" = -n ]; then shift; fi
+            case "$1" in
+              chown|chmod) exit 0 ;;
+            esac
             exec "$@"
             """,
         )
@@ -335,8 +338,8 @@ class DeployProductionTest(unittest.TestCase):
                 "COMMAND_LOG": str(self.log_path),
                 "HA_BOT_IMAGE": current_ref,
                 "HA_BOT_IMAGE_SOURCE": SOURCE,
-                "HA_BOT_UID": str(os.getuid()),
-                "HA_BOT_GID": str(os.getgid()),
+                "HA_BOT_UID": "10001",
+                "HA_BOT_GID": "10001",
                 "HA_BOT_STABILITY_SECONDS": "0",
                 "HA_BOT_WAIT_TIMEOUT": "60",
                 "DEPLOY_SHA": DEPLOY_SHA,
