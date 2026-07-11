@@ -1,0 +1,41 @@
+name: ha-bot
+
+services:
+  bot:
+    image: "${HA_BOT_IMAGE:?HA_BOT_IMAGE must reference an immutable image digest}"
+    pull_policy: never
+    platform: linux/arm64
+    user: "${HA_BOT_UID:?HA_BOT_UID must be a non-root numeric UID}:${HA_BOT_GID:?HA_BOT_GID must be a non-root numeric GID}"
+    env_file:
+      - path: ./.env
+        required: true
+    environment:
+      HA_STATE_PATH: /data/ha_state.enc
+    labels:
+      io.github.kiaquila.ha-bot.managed: "true"
+    volumes:
+      - type: bind
+        source: ./runtime-data
+        target: /data
+        bind:
+          create_host_path: false
+    restart: unless-stopped
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777,nosuid,nodev,noexec
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 128
+    cpus: "0.50"
+    mem_limit: 384m
+    mem_reservation: 128m
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+    stop_signal: SIGTERM
+    stop_grace_period: 30s

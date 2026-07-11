@@ -3,7 +3,9 @@
 HA Bot is a Telegram bot that monitors Hospital Aleman appointment slots.
 
 - Primary stack: Python Telegram bot with HTTP polling.
-- Deploy target: service worker from `Procfile.py`.
+- Deploy target: ARM64 Docker image from GHCR, run by the isolated
+  `compose.production.yml` project. `Procfile.py` is retained for local and
+  legacy tooling only.
 - Owner model: project-specific human merge owner.
 
 ## Hard Rules
