@@ -23,7 +23,7 @@ Status legend: `[x]` done, `[ ]` pending.
 
 - [x] T008 Run targeted tests, `git diff --check`, and `pnpm run preflight`.
 - [x] T009 Update this feature memory with commands and results.
-- [ ] T010 Commit with attribution, push, and open one draft PR.
+- [x] T010 Commit with attribution, push, and open one pull request.
 - [ ] T011 Trigger Codex review, resolve findings, and verify current-head checks.
 
 ## Process Memory
