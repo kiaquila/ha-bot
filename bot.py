@@ -1364,11 +1364,19 @@ def make_fecha_first_of_month(month: int, year: int) -> str:
     return f"01{month:02d}{year}"
 
 
-# ====== CHANGE #2 (Fuzzy name matching) ======
+DOCTOR_TITLE_TOKENS = frozenset({"DR", "DRA"})
+
+
 def _name_tokens(s: Optional[str]) -> List[str]:
+    """Return canonical meaningful tokens from a portal doctor name.
+
+    Portal and selected names can differ only in presentation: accents,
+    punctuation, capitalization, or a ``Dr.``/``Dra.`` title.  Keep every
+    remaining token exact so this does not become broad fuzzy matching.
+    """
     if not s:
         return []
-    up = s.upper()
+    up = _norm(s)
     # replace common punctuation with spaces, keep letters/numbers/spaces
     buf = []
     for ch in up:
@@ -1377,7 +1385,11 @@ def _name_tokens(s: Optional[str]) -> List[str]:
         else:
             buf.append(" ")
     cleaned = "".join(buf)
-    tokens = [t for t in cleaned.split() if t]
+    tokens = [
+        token
+        for token in cleaned.split()
+        if token and token not in DOCTOR_TITLE_TOKENS
+    ]
     return tokens
 
 
@@ -1477,13 +1489,14 @@ async def check_task_once(uid: int, user: UserState, t: Task, context: ContextTy
     log.info("[HA API] RESP %d slots", len(resp))
 
     notified_changed = False
+    unmatched_name_slots = 0
     for slot in resp:
         if not isinstance(slot, dict):
             continue
 
         slot_agenda = slot.get("agendaNombre")
 
-        # ====== CHANGE #2 (Fuzzy matching instead of strict equality) ======
+        # Match canonical meaningful name tokens instead of exact display text.
         matched = False
         if t.agenda_nombres is None:
             matched = _matches_by_tokens(t.agenda_nombre, slot_agenda)
@@ -1495,6 +1508,7 @@ async def check_task_once(uid: int, user: UserState, t: Task, context: ContextTy
                     break
 
         if not matched:
+            unmatched_name_slots += 1
             continue
 
         key = f"{slot_agenda} {slot.get('fecha','')} {slot.get('hora','')}".strip()
@@ -1512,6 +1526,14 @@ async def check_task_once(uid: int, user: UserState, t: Task, context: ContextTy
             )
         except Exception:
             pass
+
+    if unmatched_name_slots:
+        match_scope = "selected" if t.agenda_nombres is None else "any"
+        log.info(
+            "[HA API] skipped %d slot(s): agenda name did not match %s agenda",
+            unmatched_name_slots,
+            match_scope,
+        )
 
     if notified_changed:
         # Persist immediately so an already-announced slot is not re-notified
