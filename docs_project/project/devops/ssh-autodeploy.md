@@ -54,7 +54,13 @@ deployment leaves the workflow red for operator investigation.
 
 The production service has no published ports, external networks, fixed
 container name, privileged capabilities, or writable root filesystem. The
-script verifies the exact image ID, a stable restart count, and that every
+image defines a dependency-free Docker healthcheck: the worker writes a local
+heartbeat under the existing `/tmp` tmpfs and refreshes it from the Telegram
+JobQueue every 30 seconds; the probe rejects a missing or older-than-90-second
+heartbeat. It does not call Telegram or Hospital Alemán, so upstream outages do
+not create container restart loops. The deploy script validates the exact probe
+metadata on the candidate image, waits for `healthy`, verifies health and a
+stable restart count again after the stability window, and confirms that every
 pre-existing non-HA container has the same running state after deployment.
 
 ## Image retention

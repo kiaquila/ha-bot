@@ -209,6 +209,24 @@ image_revision="$(docker image inspect --format '{{ index .Config.Labels "org.op
   die 'the local image revision label does not match DEPLOY_SHA'
 image_architecture="$(docker image inspect --format '{{.Architecture}}' "$HA_BOT_IMAGE")"
 [[ "$image_architecture" == arm64 ]] || die 'HA_BOT_IMAGE must be built for linux/arm64'
+image_healthcheck="$(docker image inspect --format '{{json .Config.Healthcheck}}' "$HA_BOT_IMAGE")"
+python3 -c '
+import json
+import sys
+
+healthcheck = json.loads(sys.argv[1])
+
+def require(condition, message):
+    if not condition:
+        raise SystemExit(f"unsafe candidate image: {message}")
+
+require(isinstance(healthcheck, dict), "image healthcheck is required")
+require(healthcheck.get("Test") == ["CMD", "python", "healthcheck.py"], "image healthcheck command is unexpected")
+require(healthcheck.get("Interval") == 30_000_000_000, "image healthcheck interval is unexpected")
+require(healthcheck.get("Timeout") == 3_000_000_000, "image healthcheck timeout is unexpected")
+require(healthcheck.get("StartPeriod") == 20_000_000_000, "image healthcheck start period is unexpected")
+require(healthcheck.get("Retries") == 3, "image healthcheck retry count is unexpected")
+' "$image_healthcheck"
 
 # A pre-existing Compose project is accepted only when every container carries
 # our explicit ownership label. This makes repeat deployments idempotent while
@@ -376,6 +394,8 @@ actual_image_id="$(docker container inspect --format '{{.Image}}' "$bot_containe
 state="$(docker container inspect --format '{{.State.Status}}' "$bot_container_id")"
 running="$(docker container inspect --format '{{.State.Running}}' "$bot_container_id")"
 [[ "$state" == running && "$running" == true ]] || die 'the deployed container is not running'
+health="$(docker container inspect --format '{{.State.Health.Status}}' "$bot_container_id")"
+[[ "$health" == healthy ]] || die 'the deployed container is not healthy'
 
 published_ports="$(docker container inspect --format '{{json .HostConfig.PortBindings}}' "$bot_container_id")"
 [[ "$published_ports" == null || "$published_ports" == '{}' ]] || die 'the deployed container publishes host ports'
@@ -390,9 +410,10 @@ if (( HA_BOT_STABILITY_SECONDS > 0 )); then
   sleep "$HA_BOT_STABILITY_SECONDS"
 fi
 state="$(docker container inspect --format '{{.State.Status}}' "$bot_container_id")"
+health="$(docker container inspect --format '{{.State.Health.Status}}' "$bot_container_id")"
 restart_count_after="$(docker container inspect --format '{{.RestartCount}}' "$bot_container_id")"
-[[ "$state" == running && "$restart_count_after" == "$restart_count_before" ]] ||
-  die 'the deployed container restarted during the stability window'
+[[ "$state" == running && "$health" == healthy && "$restart_count_after" == "$restart_count_before" ]] ||
+  die 'the deployed container lost health or restarted during the stability window'
 
 verify_foreign_containers() {
   local container_id expected_state actual_state

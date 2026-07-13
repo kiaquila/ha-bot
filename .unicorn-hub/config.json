@@ -3,6 +3,7 @@
   "specsDir": "specs",
   "productPaths": [
     "bot.py",
+    "healthcheck.py",
     "requirements.txt",
     "Procfile.py",
     "Dockerfile",
@@ -23,7 +24,7 @@
   "trustedReviewLoginsByAgent": {},
   "profile": "telegram-bot",
   "commands": {
-    "test": "python3 -m py_compile bot.py",
+    "test": "python3 -m py_compile bot.py healthcheck.py",
     "preflight": "pnpm run preflight"
   },
   "contextBudget": {
