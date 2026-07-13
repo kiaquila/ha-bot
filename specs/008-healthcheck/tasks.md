@@ -81,3 +81,7 @@ Status legend: `[x]` done, `[ ]` pending.
 - The attributed implementation commit was pushed to the task branch, one ready
   pull request was opened against `main`, and the owner account posted the
   trusted `@codex review` trigger.
+- Codex review identified that opening a pre-existing FIFO with blocking
+  `O_WRONLY` could wedge the JobQueue before the regular-file guard ran. The
+  writer now adds `O_NONBLOCK`, and a subprocess regression requires FIFO
+  rejection within a two-second timeout.

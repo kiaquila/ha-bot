@@ -2,6 +2,8 @@
 
 import os
 from pathlib import Path
+import subprocess
+import sys
 import tempfile
 from types import SimpleNamespace
 import unittest
@@ -71,6 +73,27 @@ class HeartbeatProbeTests(unittest.TestCase):
         self.assertFalse(
             healthcheck.is_heartbeat_fresh(self.path, max_age_seconds=90)
         )
+
+    @unittest.skipUnless(hasattr(os, "mkfifo"), "FIFO test requires POSIX")
+    def test_writer_rejects_fifo_without_blocking(self) -> None:
+        fifo = Path(self.tempdir.name) / "heartbeat-fifo"
+        os.mkfifo(fifo)
+
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                "import healthcheck, sys; healthcheck.mark_heartbeat(sys.argv[1])",
+                str(fifo),
+            ],
+            cwd=Path(__file__).parents[1],
+            capture_output=True,
+            text=True,
+            timeout=2,
+            check=False,
+        )
+
+        self.assertNotEqual(result.returncode, 0)
 
     def test_environment_configures_the_writer_and_probe_path_together(self) -> None:
         with patch.dict(

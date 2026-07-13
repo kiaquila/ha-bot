@@ -21,7 +21,9 @@ def mark_heartbeat(path: PathLike | None = None) -> None:
     selected_path = configured_heartbeat_path() if path is None else path
     if not selected_path:
         raise OSError("heartbeat path is empty")
-    flags = os.O_WRONLY | os.O_CREAT | os.O_CLOEXEC
+    # O_NONBLOCK makes a pre-existing FIFO fail immediately instead of waiting
+    # for a reader before the fstat regular-file guard can run.
+    flags = os.O_WRONLY | os.O_CREAT | os.O_CLOEXEC | os.O_NONBLOCK
     if hasattr(os, "O_NOFOLLOW"):
         flags |= os.O_NOFOLLOW
 
