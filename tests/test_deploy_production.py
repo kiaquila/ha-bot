@@ -23,6 +23,13 @@ def image(image_id: str, ref: str, *, source: str = SOURCE) -> dict:
         "source": source,
         "revision": DEPLOY_SHA,
         "architecture": "arm64",
+        "healthcheck": {
+            "Test": ["CMD", "python", "healthcheck.py"],
+            "Interval": 30_000_000_000,
+            "Timeout": 3_000_000_000,
+            "StartPeriod": 20_000_000_000,
+            "Retries": 3,
+        },
         "repo_digests": [ref],
     }
 
@@ -185,6 +192,7 @@ class DeployProductionTest(unittest.TestCase):
                         "image": expected["id"],
                         "status": "running",
                         "running": True,
+                        "health": state.get("new_container_health", "healthy"),
                         "restart_count": 0,
                         "ports": "{}",
                         "networks": ["ha-bot_default"],
@@ -232,6 +240,8 @@ class DeployProductionTest(unittest.TestCase):
                     print(item["revision"])
                 elif fmt == "{{.Architecture}}":
                     print(item["architecture"])
+                elif fmt == "{{json .Config.Healthcheck}}":
+                    print(json.dumps(item.get("healthcheck")))
                 elif ".RepoDigests" in fmt:
                     print(" ".join(item["repo_digests"]))
                 else:
@@ -288,6 +298,8 @@ class DeployProductionTest(unittest.TestCase):
                     print(item["status"])
                 elif fmt == "{{.State.Running}}":
                     print(str(item.get("running", item["status"] == "running")).lower())
+                elif fmt == "{{.State.Health.Status}}":
+                    print(item.get("health", ""))
                 elif fmt == "{{.RestartCount}}":
                     print(item.get("restart_count", 0))
                 elif fmt == "{{.Image}}":
@@ -393,6 +405,13 @@ class DeployProductionTest(unittest.TestCase):
         prefix = "docker compose --project-name ha-bot --file compose.production.yml"
         self.assertIn(f"{prefix} config --quiet", log)
         self.assertIn(f"{prefix} up -d --wait --wait-timeout 60", log)
+        self.assertEqual(
+            log.count(
+                "docker container inspect --format "
+                "'{{.State.Health.Status}}' ha-container"
+            ),
+            2,
+        )
         self.assertIn("docker network ls --format", log)
         self.assertNotIn("docker network ls --filter", log)
         self.assertIn("systemctl <disable> <--now> <ha_bot.service>", log)
@@ -442,6 +461,29 @@ class DeployProductionTest(unittest.TestCase):
         self.assertIn("must not enable bind source creation", result.stderr)
         self.assertNotIn("systemctl", self._log())
         self.assertNotIn(" up -d ", self._log())
+
+    def test_candidate_image_must_include_healthcheck(self) -> None:
+        current = digest("1")
+        state = self._base_state(current)
+        state["images"][0]["healthcheck"] = None
+
+        result = self._run(state, current)
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("image healthcheck is required", result.stderr)
+        self.assertNotIn("systemctl", self._log())
+        self.assertNotIn(" up -d ", self._log())
+
+    def test_unhealthy_container_is_not_recorded_as_stable(self) -> None:
+        current = digest("2")
+        state = self._base_state(current)
+        state["new_container_health"] = "unhealthy"
+
+        result = self._run(state, current)
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("deployed container is not healthy", result.stderr)
+        self.assertFalse((self.root / ".deploy-state" / "stable-images").exists())
 
     def test_non_bot_systemd_target_is_rejected_before_any_command(self) -> None:
         current = digest("5")

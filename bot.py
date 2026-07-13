@@ -13,6 +13,7 @@ from typing import Dict, List, Optional, Tuple, Any
 
 import requests
 from cryptography.fernet import Fernet, InvalidToken
+from healthcheck import mark_heartbeat
 from telegram import (
     Update,
     InlineKeyboardButton,
@@ -35,6 +36,8 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN", "").strip()
 if not BOT_TOKEN:
     raise RuntimeError("BOT_TOKEN is not set. Add it to environment variables.")
 CHECK_INTERVAL_SECONDS = 300  # 5 minutes
+HEALTHCHECK_INTERVAL_SECONDS = 30
+HEALTHCHECK_FIRST_SECONDS = 10
 # After this many consecutive invalid-token/slot rejections we stop the silent
 # re-login retry loop and tell the user to re-authorize.
 AUTH_FAIL_CAP = 3
@@ -1604,10 +1607,30 @@ async def poll_tasks(context: ContextTypes.DEFAULT_TYPE):
             continue
 
         for t in active_tasks:
-            await check_task_once(uid, user, t, context)
+            try:
+                await check_task_once(uid, user, t, context)
+            finally:
+                # Synchronous portal calls can occupy the event loop for their
+                # bounded request timeout. Record progress between tasks so a
+                # long queue does not look stalled while it is advancing.
+                mark_heartbeat()
 
     # Capture any per-cycle drift (paused tasks, cleared credentials) in one write.
     save_state()
+
+
+async def healthcheck_heartbeat(_context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Record local JobQueue progress for Docker's dependency-free probe."""
+    mark_heartbeat()
+
+
+def schedule_healthcheck(job_queue) -> None:
+    """Start heartbeat updates with the worker's JobQueue lifecycle."""
+    job_queue.run_repeating(
+        healthcheck_heartbeat,
+        interval=HEALTHCHECK_INTERVAL_SECONDS,
+        first=HEALTHCHECK_FIRST_SECONDS,
+    )
 
 
 # =========================
@@ -1627,6 +1650,7 @@ def main():
     app.add_handler(CallbackQueryHandler(handle_callback))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
 
+    schedule_healthcheck(app.job_queue)
     app.job_queue.run_repeating(poll_tasks, interval=CHECK_INTERVAL_SECONDS, first=10)
 
     app.run_polling()

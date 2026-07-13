@@ -13,8 +13,11 @@ WORKDIR /app
 COPY requirements.txt ./requirements.txt
 RUN python -m pip install --no-cache-dir --requirement requirements.txt
 
-COPY --chown=65532:65532 bot.py ./bot.py
+COPY --chown=65532:65532 bot.py healthcheck.py ./
 
 USER 65532:65532
+
+HEALTHCHECK --interval=30s --timeout=3s --start-period=20s --retries=3 \
+    CMD ["python", "healthcheck.py"]
 
 CMD ["python", "bot.py"]

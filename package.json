@@ -11,7 +11,7 @@
     "check:context": "node scripts/check-context-budget.mjs",
     "check:feature-memory": "node scripts/check-feature-memory.mjs",
     "check:repo": "node scripts/check-repo-baseline.mjs",
-    "check:python": "python3 -m py_compile bot.py",
+    "check:python": "python3 -m py_compile bot.py healthcheck.py",
     "check:tests": "python3 -m unittest discover -s tests -p 'test_*.py' -v",
     "preflight": "node scripts/check-feature-memory.mjs --worktree && pnpm run check:repo && pnpm run check:context -- --local-preflight && pnpm run check:context -- --worktree && pnpm run check:python && pnpm run check:tests",
     "agent:set": "node scripts/set-implementation-agent.mjs",
