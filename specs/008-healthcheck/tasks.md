@@ -29,8 +29,8 @@ Status legend: `[x]` done, `[ ]` pending.
 - [x] T012 Run Dockerfile and rendered Compose validation when local Docker is
   available; record any environment limitation otherwise.
 - [x] T013 Update this feature memory with exact verification evidence.
-- [ ] T014 Commit with attribution, push, and open one ready pull request.
-- [ ] T015 Post the trusted `@codex review` trigger from the owner account.
+- [x] T014 Commit with attribution, push, and open one ready pull request.
+- [x] T015 Post the trusted `@codex review` trigger from the owner account.
 - [ ] T016 Resolve blocking review findings and verify current-head required
   checks.
 
@@ -78,3 +78,6 @@ Status legend: `[x]` done, `[ ]` pending.
   The local Docker daemon was unavailable, so the ARM64 image build and runtime
   health smoke are delegated to GitHub CI rather than reported as local
   evidence.
+- The attributed implementation commit was pushed to the task branch, one ready
+  pull request was opened against `main`, and the owner account posted the
+  trusted `@codex review` trigger.
