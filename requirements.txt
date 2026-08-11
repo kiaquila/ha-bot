@@ -1,5 +1,5 @@
 python-telegram-bot[job-queue]==20.7
-requests==2.33.0
-idna==3.15
+requests==2.34.2
+idna==3.18
 python-dotenv==1.2.2
 cryptography==50.0.0
