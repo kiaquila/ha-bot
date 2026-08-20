@@ -49,7 +49,7 @@ image. It can be removed in a later PR after the migration ledger has drained.
 | AC-002 | `test_first_canonical_deploy_accepts_legacy_ledger_and_retains_legacy_current` |
 | AC-003 | `test_second_canonical_deploy_drains_legacy_image_from_ledger` |
 | AC-004 | Candidate and ledger identity-mismatch tests plus foreign-image test |
-| AC-005 | Green Actions run plus read-only server, GitHub, and worktree assertions |
+| AC-005 | Preserved GitHub identity/environment, healthy server cutover, green production run, and repaired-worktree assertions |
 
 Negative scenario evidence:
 

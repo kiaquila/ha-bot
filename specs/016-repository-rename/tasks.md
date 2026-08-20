@@ -18,9 +18,11 @@
 
 - [x] T007 Run focused deployment tests, shellcheck/actionlint, and local preflight
   (58 tests passed).
-- [ ] T008 Create one ready PR and confirm all current-head required checks pass.
-- [ ] T009 Rename GitHub and verify redirects, settings, environment, and PR state.
-- [ ] T010 Move the server checkout, update its origin and `BOTS_DEPLOY_PATH`, and
+- [x] T008 Create one ready PR and confirm all substantive-head required checks
+  pass with a current Codex review and no findings.
+- [x] T009 Rename GitHub and verify repository identity, old redirects, settings,
+  production environment secrets, and PR state are preserved.
+- [x] T010 Move the server checkout, update its origin and `BOTS_DEPLOY_PATH`, and
   confirm the existing container remains healthy.
 - [ ] T011 Merge the PR and capture the exact green production deployment evidence.
 - [ ] T012 Rename the local repository root, repair every linked worktree, and
@@ -46,6 +48,8 @@
   bounded migration; never accept cross-pair combinations.
 - Keep the legacy GHCR package after this task and let two successful canonical
   deployments drain it from the stable ledger before any separate cleanup.
+- Rename GitHub before merging the transition PR so the merge creates exactly
+  one canonical production image and deployment.
 
 ### Known Issues
 
