@@ -8,8 +8,10 @@ readonly COMPOSE_SERVICE="bot"
 readonly MANAGED_LABEL="io.github.kiaquila.ha-bot.managed"
 readonly EXPECTED_NETWORK="${PROJECT_NAME}_default"
 readonly EXPECTED_LEGACY_SERVICE="ha_bot.service"
-readonly EXPECTED_IMAGE_REPOSITORY="ghcr.io/kiaquila/ha_bot"
-readonly EXPECTED_IMAGE_SOURCE="https://github.com/kiaquila/ha_bot"
+readonly LEGACY_IMAGE_REPOSITORY="ghcr.io/kiaquila/ha_bot"
+readonly LEGACY_IMAGE_SOURCE="https://github.com/kiaquila/ha_bot"
+readonly CANONICAL_IMAGE_REPOSITORY="ghcr.io/kiaquila/ha-bot"
+readonly CANONICAL_IMAGE_SOURCE="https://github.com/kiaquila/ha-bot"
 
 REPO_ROOT="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
@@ -27,6 +29,23 @@ require_uint() {
   esac
 }
 
+image_identity_is_supported() {
+  local ref="$1"
+  local source="$2"
+  [[ "$ref" =~ @sha256:[0-9a-f]{64}$ ]] || return 1
+  case "$source" in
+    "$LEGACY_IMAGE_SOURCE")
+      [[ "$ref" == "$LEGACY_IMAGE_REPOSITORY"@sha256:* ]]
+      ;;
+    "$CANONICAL_IMAGE_SOURCE")
+      [[ "$ref" == "$CANONICAL_IMAGE_REPOSITORY"@sha256:* ]]
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
 HA_BOT_IMAGE="${HA_BOT_IMAGE:-}"
 HA_BOT_IMAGE_SOURCE="${HA_BOT_IMAGE_SOURCE:-}"
 DEPLOY_SHA="${DEPLOY_SHA:-}"
@@ -36,10 +55,8 @@ HA_BOT_WAIT_TIMEOUT="${HA_BOT_WAIT_TIMEOUT:-60}"
 HA_BOT_STABILITY_SECONDS="${HA_BOT_STABILITY_SECONDS:-10}"
 LEGACY_SERVICE="${LEGACY_SERVICE:-}"
 
-[[ "$HA_BOT_IMAGE" =~ ^ghcr\.io/kiaquila/ha_bot@sha256:[0-9a-f]{64}$ ]] ||
-  die "HA_BOT_IMAGE must be an immutable digest from $EXPECTED_IMAGE_REPOSITORY"
-[[ "$HA_BOT_IMAGE_SOURCE" == "$EXPECTED_IMAGE_SOURCE" ]] ||
-  die "HA_BOT_IMAGE_SOURCE must be exactly $EXPECTED_IMAGE_SOURCE"
+image_identity_is_supported "$HA_BOT_IMAGE" "$HA_BOT_IMAGE_SOURCE" ||
+  die 'HA_BOT_IMAGE must be an immutable digest from a supported repository/source identity pair'
 [[ "$DEPLOY_SHA" =~ ^[0-9a-f]{40}$ ]] || die 'DEPLOY_SHA must be a full Git commit SHA'
 [[ "$(git rev-parse HEAD)" == "$DEPLOY_SHA" ]] ||
   die 'the deploy checkout does not match DEPLOY_SHA'
@@ -55,7 +72,6 @@ require_uint HA_BOT_STABILITY_SECONDS "$HA_BOT_STABILITY_SECONDS"
 (( HA_BOT_WAIT_TIMEOUT > 0 )) || die 'HA_BOT_WAIT_TIMEOUT must be greater than zero'
 (( HA_BOT_STABILITY_SECONDS <= 60 )) || die 'HA_BOT_STABILITY_SECONDS must not exceed 60'
 
-readonly IMAGE_REPOSITORY="$EXPECTED_IMAGE_REPOSITORY"
 readonly RUNTIME_DATA="$REPO_ROOT/runtime-data"
 readonly DEPLOY_STATE_DIR="$REPO_ROOT/.deploy-state"
 readonly STABLE_LEDGER="$DEPLOY_STATE_DIR/stable-images"
@@ -289,10 +305,6 @@ if [[ ! -e "$STABLE_LEDGER" && "$existing_project_count" == 0 ]]; then
     die 'runtime-data must be empty for the first container cutover'
 fi
 
-is_scoped_digest() {
-  [[ "$1" =~ ^${IMAGE_REPOSITORY//./\.}@sha256:[0-9a-f]{64}$ ]]
-}
-
 validate_stable_image() {
   local ref="$1"
   local stable_id stable_source stable_digests
@@ -300,8 +312,8 @@ validate_stable_image() {
     die "stable image recorded in the deployment ledger is missing: $ref"
   [[ -n "$stable_id" ]] || die 'a stable image resolved to an empty image ID'
   stable_source="$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.source" }}' "$ref")"
-  [[ "$stable_source" == "$HA_BOT_IMAGE_SOURCE" ]] ||
-    die 'a stable image in the deployment ledger has an unexpected source label'
+  image_identity_is_supported "$ref" "$stable_source" ||
+    die 'a stable image in the deployment ledger has an unsupported repository/source identity pair'
   stable_digests="$(docker image inspect --format '{{join .RepoDigests " "}}' "$ref")"
   case " $stable_digests " in
     *" $ref "*) ;;
@@ -322,10 +334,12 @@ if [[ -e "$STABLE_LEDGER" ]]; then
     die 'the stable-image deployment ledger is corrupt'
   old_current="$(awk -F= '$1 == "current" { sub(/^[^=]*=/, ""); print; exit }' "$STABLE_LEDGER")"
   old_previous="$(awk -F= '$1 == "previous" { sub(/^[^=]*=/, ""); print; exit }' "$STABLE_LEDGER")"
-  is_scoped_digest "$old_current" || die 'the current stable-image ledger entry is invalid'
+  [[ "$old_current" =~ @sha256:[0-9a-f]{64}$ ]] ||
+    die 'the current stable-image ledger entry is invalid'
   validate_stable_image "$old_current"
   if [[ -n "$old_previous" ]]; then
-    is_scoped_digest "$old_previous" || die 'the previous stable-image ledger entry is invalid'
+    [[ "$old_previous" =~ @sha256:[0-9a-f]{64}$ ]] ||
+      die 'the previous stable-image ledger entry is invalid'
     validate_stable_image "$old_previous"
   fi
 fi
@@ -470,16 +484,15 @@ if docker image ls --all --no-trunc --format '{{.ID}}' >"$image_candidates" &&
       printf 'deploy-production: warning: could not inspect image %s; retaining it\n' "$image_id" >&2
       continue
     fi
-    [[ "$candidate_source" == "$HA_BOT_IMAGE_SOURCE" ]] || continue
     if ! candidate_digests="$(docker image inspect --format '{{join .RepoDigests " "}}' "$image_id")"; then
       printf 'deploy-production: warning: could not inspect image refs for %s; retaining it\n' "$image_id" >&2
       continue
     fi
     scoped_refs=""
     for ref in $candidate_digests; do
-      case "$ref" in
-        "$IMAGE_REPOSITORY"@sha256:*) scoped_refs="$scoped_refs $ref" ;;
-      esac
+      if image_identity_is_supported "$ref" "$candidate_source"; then
+        scoped_refs="$scoped_refs $ref"
+      fi
     done
     [[ -n "$scoped_refs" ]] || continue
     if image_is_used "$image_id"; then

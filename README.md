@@ -34,8 +34,9 @@ HA_BOT_IMAGE=ha-bot:local HA_BOT_UID="$(id -u)" HA_BOT_GID="$(id -g)" \
 ## Production deployment
 
 A merge to `main` runs the repository preflight, builds a Linux ARM64 image,
-pushes it to GHCR, and deploys that exact digest over SSH. The host runs only the
-Compose project `ha-bot`; the deployment script does not publish ports, join
+pushes it to `ghcr.io/kiaquila/ha-bot`, and deploys that exact digest over SSH.
+The host runs only the Compose project `ha-bot`; the deployment script does not
+publish ports, join
 shared networks, prune Docker globally, or address containers from other
 projects.
 

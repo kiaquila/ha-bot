@@ -8,13 +8,17 @@ import textwrap
 import unittest
 
 
-SOURCE = "https://github.com/kiaquila/ha_bot"
-REPOSITORY = "ghcr.io/kiaquila/ha_bot"
+LEGACY_SOURCE = "https://github.com/kiaquila/ha_bot"
+LEGACY_REPOSITORY = "ghcr.io/kiaquila/ha_bot"
+CANONICAL_SOURCE = "https://github.com/kiaquila/ha-bot"
+CANONICAL_REPOSITORY = "ghcr.io/kiaquila/ha-bot"
+SOURCE = LEGACY_SOURCE
+REPOSITORY = LEGACY_REPOSITORY
 DEPLOY_SHA = "d" * 40
 
 
-def digest(char: str) -> str:
-    return f"{REPOSITORY}@sha256:{char * 64}"
+def digest(char: str, *, repository: str = REPOSITORY) -> str:
+    return f"{repository}@sha256:{char * 64}"
 
 
 def image(image_id: str, ref: str, *, source: str = SOURCE) -> dict:
@@ -507,6 +511,31 @@ class DeployProductionTest(unittest.TestCase):
         self.assertIn("must be an immutable digest from", result.stderr)
         self.assertFalse(self.log_path.exists())
 
+    def test_canonical_image_scope_is_accepted(self) -> None:
+        current = digest("6", repository=CANONICAL_REPOSITORY)
+        state = self._base_state(current)
+        state["images"][0]["source"] = CANONICAL_SOURCE
+
+        result = self._run(
+            state,
+            current,
+            env_overrides={"HA_BOT_IMAGE_SOURCE": CANONICAL_SOURCE},
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        marker = (self.root / ".deploy-state" / "stable-images").read_text()
+        self.assertEqual(marker, f"current={current}\nprevious=\n")
+
+    def test_repository_source_identity_mismatch_is_rejected_before_any_command(self) -> None:
+        current = digest("7", repository=CANONICAL_REPOSITORY)
+        state = self._base_state(current)
+
+        result = self._run(state, current)
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("repository/source identity pair", result.stderr)
+        self.assertFalse(self.log_path.exists())
+
     def test_failed_compose_up_leaves_systemd_disabled_without_rollback(self) -> None:
         current = digest("b")
         state = self._base_state(current)
@@ -589,6 +618,31 @@ class DeployProductionTest(unittest.TestCase):
         self.assertNotIn("systemctl", self._log())
         self.assertNotIn(" up -d ", self._log())
 
+    def test_mismatched_legacy_ledger_identity_fails_before_systemd_cutover(self) -> None:
+        current = digest("4", repository=CANONICAL_REPOSITORY)
+        mismatched = digest("3")
+        state = self._base_state(current)
+        state["images"][0]["source"] = CANONICAL_SOURCE
+        state["images"].append(
+            image("sha256:mismatched", mismatched, source=CANONICAL_SOURCE)
+        )
+        deploy_state = self.root / ".deploy-state"
+        deploy_state.mkdir()
+        (deploy_state / "stable-images").write_text(
+            f"current={mismatched}\nprevious=\n"
+        )
+
+        result = self._run(
+            state,
+            current,
+            env_overrides={"HA_BOT_IMAGE_SOURCE": CANONICAL_SOURCE},
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("unsupported repository/source identity pair", result.stderr)
+        self.assertNotIn("systemctl", self._log())
+        self.assertNotIn(" up -d ", self._log())
+
     def test_insecure_env_permissions_fail_before_docker_or_systemd(self) -> None:
         current = digest("6")
         (self.root / ".env").chmod(0o644)
@@ -660,6 +714,73 @@ class DeployProductionTest(unittest.TestCase):
         self.assertNotIn(unrelated, removed)
         marker = (deploy_state / "stable-images").read_text()
         self.assertEqual(marker, f"current={current}\nprevious={previous}\n")
+
+    def test_first_canonical_deploy_accepts_legacy_ledger_and_retains_legacy_current(self) -> None:
+        current = digest("1", repository=CANONICAL_REPOSITORY)
+        legacy_current = digest("2")
+        legacy_previous = digest("3")
+        legacy_stale = digest("4")
+        state = self._base_state(current)
+        state["images"][0]["source"] = CANONICAL_SOURCE
+        state["images"].extend(
+            [
+                image("sha256:legacy-current", legacy_current),
+                image("sha256:legacy-previous", legacy_previous),
+                image("sha256:legacy-stale", legacy_stale),
+            ]
+        )
+        deploy_state = self.root / ".deploy-state"
+        deploy_state.mkdir()
+        (deploy_state / "stable-images").write_text(
+            f"current={legacy_current}\nprevious={legacy_previous}\n"
+        )
+
+        result = self._run(
+            state,
+            current,
+            env_overrides={"HA_BOT_IMAGE_SOURCE": CANONICAL_SOURCE},
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        marker = (deploy_state / "stable-images").read_text()
+        self.assertEqual(marker, f"current={current}\nprevious={legacy_current}\n")
+        self.assertCountEqual(
+            self._state().get("removed_refs", []),
+            [legacy_previous, legacy_stale],
+        )
+
+    def test_second_canonical_deploy_drains_legacy_image_from_ledger(self) -> None:
+        current = digest("5", repository=CANONICAL_REPOSITORY)
+        canonical_previous = digest("6", repository=CANONICAL_REPOSITORY)
+        legacy_previous = digest("7")
+        state = self._base_state(current)
+        state["images"][0]["source"] = CANONICAL_SOURCE
+        state["images"].extend(
+            [
+                image(
+                    "sha256:canonical-previous",
+                    canonical_previous,
+                    source=CANONICAL_SOURCE,
+                ),
+                image("sha256:legacy-previous", legacy_previous),
+            ]
+        )
+        deploy_state = self.root / ".deploy-state"
+        deploy_state.mkdir()
+        (deploy_state / "stable-images").write_text(
+            f"current={canonical_previous}\nprevious={legacy_previous}\n"
+        )
+
+        result = self._run(
+            state,
+            current,
+            env_overrides={"HA_BOT_IMAGE_SOURCE": CANONICAL_SOURCE},
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        marker = (deploy_state / "stable-images").read_text()
+        self.assertEqual(marker, f"current={current}\nprevious={canonical_previous}\n")
+        self.assertEqual(self._state().get("removed_refs", []), [legacy_previous])
 
     def test_same_digest_redeploy_preserves_previous_stable_image(self) -> None:
         current = digest("a")

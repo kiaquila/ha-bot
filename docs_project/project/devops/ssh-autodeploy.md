@@ -4,6 +4,8 @@ Merges to `main` trigger `.github/workflows/deploy-production.yml`. The workflow
 runs the repository preflight, publishes a Linux ARM64 image to GHCR, and then
 starts the GitHub environment job named `production`. The production job checks
 out the pushed commit on the host and deploys the image by its immutable digest.
+The canonical repository and image paths are `kiaquila/ha-bot` and
+`ghcr.io/kiaquila/ha-bot`.
 
 ## Required secrets
 
@@ -69,7 +71,10 @@ After a successful verification, the host atomically records the current and
 previous successful digest references in the host-only
 `.deploy-state/stable-images` ledger. That directory is not mounted into the bot.
 Cleanup resolves the two references to image IDs and considers only images
-carrying this repository's OCI source label. It skips those IDs and every image
+carrying an exact supported repository/source identity. During the repository
+rename transition, this includes the legacy `kiaquila/ha_bot` identity so the
+first canonical deployment can retain its verified predecessor and the second
+can drain it from the ledger. It skips those IDs and every image
 used by any container, then removes remaining candidates one by one with
 `docker image rm --no-prune`, so Docker cannot cascade into untagged parent
 layers.
@@ -78,6 +83,10 @@ There is deliberately no `docker image prune`, forced removal, volume cleanup,
 network cleanup, or Compose command without the explicit `ha-bot` project. This
 retention policy controls only the server's local image store; GHCR package
 retention is outside this deployment's scope.
+
+The legacy GHCR package must not be deleted while either stable-ledger entry
+still references it. Package deletion is a separate operator action after two
+successful canonical deployments.
 
 ## Manual Docker recovery
 
