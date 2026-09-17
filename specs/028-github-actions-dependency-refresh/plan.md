@@ -56,4 +56,4 @@ Negative-scenario evidence:
 
 - The same action pins are duplicated between CI and production deployment without an automated parity check; this PR keeps them aligned and defers a broader workflow invariant.
 - `docker/setup-qemu-action` still uses its pre-existing floating default `tonistiigi/binfmt:latest`; pinning that nested runtime is outside this dependency-only update.
-- Final GitHub check and review evidence must still be collected before merge.
+- Required checks passed on implementation head `b38f54f`; Codex reported no major issues after the single false-positive thread was answered with commit metadata and resolved.

@@ -13,8 +13,8 @@
 ## Verification
 
 - [x] T005 Run `pnpm run preflight` (58 tests passed locally).
-- [ ] T006 Confirm all required GitHub checks are green on the final head.
-- [ ] T007 Confirm Codex review completed and all review threads are resolved.
+- [x] T006 Confirm all required GitHub checks are green before merge.
+- [x] T007 Confirm Codex review completed with no major issues and all review threads are resolved.
 
 ## Process Memory
 
@@ -27,4 +27,4 @@
 
 - CI and deployment duplicate the same action pins without an automated parity check; both are aligned in this PR.
 - QEMU retains its pre-existing floating default `tonistiigi/binfmt:latest`; changing that nested runtime is out of scope.
-- Final GitHub check and review evidence is pending.
+- Required checks passed on implementation head `b38f54f`; the final evidence-only head must pass the same checks before merge.
