@@ -16,8 +16,8 @@
 
 - [x] T007 Verify a clean dependency resolution for `requirements.txt`.
 - [x] T008 Run `pnpm run preflight` (58 tests passed locally).
-- [ ] T009 Confirm final `osv-scan` and all required GitHub checks are green.
-- [ ] T010 Confirm current-head Codex review completed and all blocking review threads are resolved.
+- [x] T009 Confirm `osv-scan` and all required GitHub checks are green on implementation head `bb193a6`.
+- [x] T010 Confirm Codex reported no major issues on implementation head `bb193a6` and the only earlier review thread was resolved.
 
 ## Process Memory
 
@@ -29,4 +29,4 @@
 ### Known Issues
 
 - The local Docker daemon is unavailable, so the final GitHub `osv-scan` job supplies Scanner 2.6.0 execution evidence.
-- Final GitHub check and review evidence is pending until the implementation commit is pushed.
+- The final evidence-only head must pass the same checks and current-head review before merge.

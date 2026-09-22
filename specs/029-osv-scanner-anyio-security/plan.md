@@ -56,4 +56,6 @@ Negative-scenario evidence:
 
 ### Known Issues
 
-- Clean dependency resolution succeeded and `pnpm run preflight` passed with 58 tests; final GitHub scan, check, and review evidence is pending until the implementation commit is pushed.
+- Clean dependency resolution succeeded and `pnpm run preflight` passed with 58 tests.
+- On implementation head `bb193a6`, `baseline-checks`, `guard`, `osv-scan`, and `AI Review` passed; Codex reported no major issues, and the only earlier false-positive thread was answered with commit-author evidence and resolved.
+- The final evidence-only head must pass the same checks and current-head review before merge.
