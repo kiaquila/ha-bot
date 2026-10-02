@@ -28,4 +28,5 @@
 - Implementation head `98091e7` passed `baseline-checks`, `guard`, and `osv-scan`; its only Codex P1 was a false positive about the co-author trailer and was resolved with GitHub API evidence.
 - Evidence head `d6f0ef9` passed the non-review checks; its Codex P1 cited a commit not present in the PR and was resolved with the GitHub PR commit list.
 - Evidence head `5c35804` also passed the non-review checks; its Codex P1 cited unrelated SHA `2fc8292` and was resolved from the same authoritative metadata.
+- The 2026-10-02 review of `161fc8a` cited unrelated SHA `f3960c8`; it and the still-open `7636723` false-positive thread were answered from GitHub's PR commit list and resolved.
 - Final required-check and review evidence remains pending for this evidence-only head.
