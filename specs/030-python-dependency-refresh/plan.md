@@ -60,3 +60,4 @@ Negative-scenario evidence:
 - The next review of `5c35804` cited another unrelated SHA, `2fc8292`, as the requested commit. The authoritative PR commit list again disproved the finding, and the thread was resolved.
 - Evidence head `dde87f5` passed the required checks and received a clean current-head Codex review after the authoritative PR commit list was supplied.
 - On 2026-10-02, a fresh review of `161fc8a` cited unrelated SHA `f3960c8`; GitHub's PR commit list disproved the finding. That thread and the preceding unresolved finding about unrelated SHA `7636723` were answered with the authoritative commit list and resolved.
+- The first final-memory review repeated the same false positive with unrelated SHA `fcfebe7`; the finding was answered from the PR commit list and resolved without changing product code.
