@@ -58,5 +58,5 @@ Negative-scenario evidence:
 - Required checks passed on implementation head `98091e7`; Codex's only P1 incorrectly reported that commit's already-present co-author trailer as missing. The GitHub commit API confirmed the exact trailer, and the false-positive thread was answered with that evidence and resolved.
 - Codex repeated the trailer finding on evidence head `d6f0ef9` while citing `3f9b388`, which is not a commit in this PR; GitHub's PR commit list and current-head metadata were supplied, and that thread was also resolved.
 - The next review of `5c35804` cited another unrelated SHA, `2fc8292`, as the requested commit. The authoritative PR commit list again disproved the finding, and the thread was resolved.
-- The final evidence-only head must pass the same required checks and receive current-head Codex review evidence before merge.
+- Evidence head `dde87f5` passed the required checks and received a clean current-head Codex review after the authoritative PR commit list was supplied.
 - On 2026-10-02, a fresh review of `161fc8a` cited unrelated SHA `f3960c8`; GitHub's PR commit list disproved the finding. That thread and the preceding unresolved finding about unrelated SHA `7636723` were answered with the authoritative commit list and resolved.
