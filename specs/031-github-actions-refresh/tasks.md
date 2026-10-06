@@ -20,6 +20,10 @@
 
 ## Process Memory
 
+### Dead Ends
+
+- Codex reviews on `41700fe456` and `2b8e1a4f24` reported missing trailers on nonexistent commits `c12558961d` and `d694fb9690`; GitHub returned `No commit found for SHA` for both, so the false-positive threads were documented and resolved.
+
 ### Decisions
 
 - Keep the grouped action update intact and preserve immutable full-SHA references.
