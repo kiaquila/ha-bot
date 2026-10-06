@@ -23,7 +23,8 @@
 
 - Keep both compatible patch updates in the existing grouped Dependabot PR.
 - Preserve exact pins and validate the security-sensitive dependency update with the existing persistence tests.
+- Record assisted-commit attribution in the commit trailer; GitHub identifies Kristina Aquila as the author and committer and OpenAI Codex as co-author.
 
 ### Known Issues
 
-- GitHub checks and review evidence are pending until the updated branch is pushed.
+- The first Codex review reported a missing co-author trailer on `4ea4d10`, but both `git show` and GitHub commit metadata show the required final `Co-authored-by: OpenAI Codex <codex@openai.com>` trailer. The stale finding must be resolved and review rerun on the next head.

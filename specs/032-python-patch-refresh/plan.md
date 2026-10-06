@@ -54,11 +54,13 @@ Negative-scenario evidence:
 
 - The initial Dependabot head failed `guard` because `requirements.txt` is a protected product path and the PR had no complete feature-memory folder.
 - The initial `AI Review` run failed because no trusted current-head review request marker existed.
+- Codex's first current-head review misread the assisted commit metadata and reported a missing co-author trailer even though the trailer is present and GitHub attributes the commit to both Kristina Aquila and OpenAI Codex.
 
 ### Decisions
 
 - Keep the two compatible patch updates grouped in the existing Dependabot PR.
 - Preserve exact pins and avoid application changes because the requested updates are patch-level maintenance releases.
+- Treat commit metadata as the attribution source of truth: the assisted commit is authored and committed by Kristina Aquila and ends with `Co-authored-by: OpenAI Codex <codex@openai.com>`.
 
 ### Known Issues
 
