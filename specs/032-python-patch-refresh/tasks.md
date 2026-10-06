@@ -27,4 +27,4 @@
 
 ### Known Issues
 
-- The first Codex review reported a missing co-author trailer on `4ea4d10`, but both `git show` and GitHub commit metadata show the required final `Co-authored-by: OpenAI Codex <codex@openai.com>` trailer. The stale finding must be resolved and review rerun on the next head.
+- Two Codex reviews reported attribution findings that conflict with GitHub evidence. The first overlooked the trailer on `4ea4d10`; the second cited nonexistent commit `b158c19` while the actual PR head and pull-request head ref were `b80503e`. Each actual assisted commit is authored and committed by Kristina Aquila and ends with `Co-authored-by: OpenAI Codex <codex@openai.com>`.
