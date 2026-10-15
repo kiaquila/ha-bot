@@ -175,11 +175,12 @@ test('eligible labeled PR validation requires a writer and exact event, checkout
   const dir = mkdtempSync(join(tmpdir(), 'ha-bot-labeled-gate-'));
   try {
     writeFileSync(join(dir, 'git'), '#!/bin/sh\nif [ "$1" = rev-parse ]; then echo "$FIXTURE_CHECKOUT_SHA"; else exit "$FIXTURE_DIRTY"; fi\n', { mode: 0o700 });
-    writeFileSync(join(dir, 'gh'), '#!/bin/sh\necho "$FIXTURE_PERMISSION"\n', { mode: 0o700 });
+    writeFileSync(join(dir, 'gh'), '#!/bin/sh\necho "$*" >> "$FIXTURE_GH_LOG"\ncase "$*" in *\"/events?\"*) echo "$FIXTURE_LABEL_EVENTS";; *) echo "$FIXTURE_PERMISSION";; esac\n', { mode: 0o700 });
     for (const [extra, expected, script] of [
       [{}, 0, 'scripts'], [{ FIXTURE_PERMISSION: 'write' }, 0, 'scripts'],
       [{ FIXTURE_PERMISSION: 'read' }, 1], [{ FIXTURE_PERMISSION: 'triage' }, 1],
-      [{ FIXTURE_PERMISSION: '' }, 1], [{ REVIEW_LABEL: 'gate:' + sha.slice(0, 10) }, 1],
+      [{ FIXTURE_PERMISSION: '' }, 1], [{ FIXTURE_LABEL_ACTOR: '' }, 1],
+      [{ GITHUB_ACTOR: 'read-only-trigger' }, 0, 'scripts'], [{ REVIEW_LABEL: 'gate:' + sha.slice(0, 10) }, 1],
       [{ REVIEW_LABEL: 'gate:' + 'a'.repeat(40) }, 1], [{ EVENT_HEAD_SHA: 'a'.repeat(40) }, 1],
       [{ CURRENT_HEAD_SHA: 'a'.repeat(40) }, 1], [{ FIXTURE_CHECKOUT_SHA: 'a'.repeat(40) }, 1],
       [{ FIXTURE_DIRTY: '1' }, 1], [{ SELECTED_AGENT: 'claude' }, 1],
@@ -192,12 +193,47 @@ test('eligible labeled PR validation requires a writer and exact event, checkout
       const output = join(dir, 'output'); writeFileSync(output, '');
       const result = spawnSync('bash', ['-c', block], { encoding: 'utf8', env: { ...process.env,
         PATH: `${dir}:${process.env.PATH}`, FIXTURE_CHECKOUT_SHA: sha, FIXTURE_DIRTY: '0', FIXTURE_PERMISSION: 'admin',
+        FIXTURE_LABEL_EVENTS: JSON.stringify([[{ event: 'labeled', label: { name: 'gate:' + sha }, actor: { login: extra.FIXTURE_LABEL_ACTOR ?? 'writer' } }]]), FIXTURE_GH_LOG: join(dir, 'gh-log'), PR_NUMBER: '1',
         REVIEWED_GATE_SHA: '', CURRENT_HEAD_SHA: sha, GITHUB_SHA: 'b'.repeat(40), EVENT_HEAD_SHA: sha,
         EVENT_NAME: 'pull_request', EVENT_ACTION: 'labeled', REVIEW_LABEL: 'gate:' + sha, PR_LABELS: JSON.stringify(['gate:' + sha]),
         GITHUB_REPOSITORY: 'example/repo', GITHUB_ACTOR: 'writer', SELECTED_AGENT: 'codex', GITHUB_OUTPUT: output, ...extra
       } });
       assert.equal(result.status, expected, JSON.stringify(extra) + result.stderr);
       if (expected === 0) assert.equal(readFileSync(output, 'utf8').trim(), 'script_dir=' + script);
+      if (extra.GITHUB_ACTOR) {
+        assert.match(readFileSync(join(dir, 'gh-log'), 'utf8'), /collaborators\/writer\/permission/);
+        assert.doesNotMatch(readFileSync(join(dir, 'gh-log'), 'utf8'), /collaborators\/read-only-trigger/);
+      }
     }
   } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('pre-merge rollout watcher requeues real PR gates on edited evidence and thread changes', async () => {
+  const { watchRolloutReview } = await import('../scripts/ai-review-rollout-watch.mjs');
+  async function watch({ changed = true, threadChange = false, move = false, missingRun = false, apiError = false } = {}) {
+    let tick = 0;
+    const posts = [];
+    await watchRolloutReview({ repository: 'example/repo', prNumber: 1, headSha: sha,
+      now: () => tick * 1000, sleep: async () => { tick++; }, log: () => {}, maxMs: 10000,
+      request: async (_token, _repo, path, options = {}) => {
+        if (apiError) throw new Error('GitHub unavailable');
+        if (path === '/graphql') return { data: { repository: { pullRequest: { reviewThreads: {
+          pageInfo: { hasNextPage: false }, nodes: [{ id: 'thread', isResolved: !threadChange || tick === 0 }]
+        } } } } };
+        if (options.method === 'POST') { posts.push(path); return null; }
+        if (path.endsWith('/pulls/1')) return { state: tick >= 2 ? 'closed' : 'open', merged: tick >= 2,
+          head: { sha: move && tick > 0 ? 'a'.repeat(40) : sha } };
+        if (path.includes('/actions/workflows/')) return { workflow_runs: missingRun ? [] : [run({ conclusion: 'success' })] };
+        if (path.includes('/issues/1/comments')) return [{ id: 1, body: changed && tick > 0 ? summary({ status: 'in_progress' }) : summary() }];
+        return [];
+      }
+    });
+    return posts;
+  }
+  assert.deepEqual(await watch(), ['/repos/example/repo/actions/runs/10/rerun']);
+  assert.deepEqual(await watch({ changed: false }), []);
+  assert.deepEqual(await watch({ changed: false, threadChange: true }), ['/repos/example/repo/actions/runs/10/rerun']);
+  await assert.rejects(watch({ move: true }), /head moved/);
+  await assert.rejects(watch({ missingRun: true }), /could not invalidate/);
+  await assert.rejects(watch({ apiError: true }), /GitHub unavailable/);
 });

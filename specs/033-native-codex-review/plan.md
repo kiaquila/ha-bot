@@ -21,7 +21,8 @@ privileged execution path.
 
 For initial rollout, a repository writer adds `gate:<full-reviewed-head-sha>`
 to the PR after verifying genuine native review and resolved threads. This
-eligible labeled PR event checks the actor's write permission and requires the
+eligible labeled PR event checks the original label actor's write permission
+from paginated issue events and requires the
 label SHA to equal the event head, checkout SHA, and live PR head. It runs the
 complete reviewed gate with read-only permissions and main's reviewer policy.
 All PR events on that same labeled head continue to use the reviewed runtime,
@@ -34,6 +35,14 @@ jobs as required PR checks. A real diagnostic run confirmed this restriction;
 only the eligible PR validation can establish merge readiness. Rerun selection
 therefore gives eligible PR runs priority over later diagnostic dispatches.
 
+After genuine native review of the final head, start the already reviewed local
+`ai-review-rollout-watch.mjs` supervisor using the authorized operator's `gh`
+session, then apply the SHA label. Keep it active through normal protected merge.
+It polls comments/reviews/inline findings/thread state and requeues the real PR
+gate on every change, supplying routing before the updated issue-comment
+workflow reaches main. A stopped/erroring watcher blocks merge; restart it and
+the full 120-second readiness window after native evidence/checks are green.
+
 Recheck all applicable required pipelines after labeled validation and use
 normal protected merge. A moved head requires fresh review and a new explicit
 SHA label. No branch protection or trusted identity changes are needed.
@@ -44,6 +53,6 @@ Original reproduction: identical body accepted=true without the receipt prefix,
 accepted=false with the receipt prefix. Regression coverage executes the gate
 CLI with an intercepted GitHub API, and evaluates the actual workflow condition.
 
-Local verification passed: `pnpm run preflight` (58 Python tests and 13 Node
+Local verification passed: `pnpm run preflight` (58 Python tests and 14 Node
 regression groups), plus `git diff --check`. Full observed receipt and summary
 fixtures are in `tests/fixtures/native-codex-review.json`, with public sources.

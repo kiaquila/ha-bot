@@ -47,13 +47,14 @@ and checks the live head immediately before requesting a rerun.
 
 Ordinary PR gates and event routers execute default-branch scripts. For initial
 rollout of a reviewed gate-format fix, a repository writer can add the PR label
-`gate:<full-reviewed-head-sha>`. The labeled PR event verifies the actor's current
-write permission, requires the label SHA to match the event head, checkout, and
+`gate:<full-reviewed-head-sha>`. The PR event finds the label's original actor in paginated issue events and
+verifies that actor's write permission, requires the label SHA to match the event head, checkout, and
 live PR head, and runs the reviewed gate code with default-branch reviewer policy
 and read-only permissions. The operator must first confirm genuine native review
 and resolved threads for that exact SHA. Every later event for the same labeled
 head uses that reviewed runtime, including unrelated labels, reopen, and ready
-for review, so requeue cannot fall back to an older parser. A label cannot enable
+for review, so requeue cannot fall back to an older parser. The later event actor
+does not need to be the writer who authorized the label. A label cannot enable
 this path on a different head; a moved head needs a new SHA label and review.
 
 The workflow also supports explicit `workflow_dispatch` diagnostics on the PR
@@ -61,6 +62,22 @@ head branch with `reviewed_gate_sha` equal to the full reviewed SHA. All manual
 runs must match the live PR head. GitHub does not evaluate workflow-dispatch jobs
 as required checks in a branch ruleset, so diagnostic success cannot establish
 merge readiness. See [GitHub's required-check troubleshooting](https://docs.github.com/en/pull-requests/how-tos/merge-and-close-pull-requests/troubleshooting-required-status-checks).
+
+Before the initial labeled validation, the operator starts the already reviewed
+local supervisor with the authorized `gh` session:
+
+```sh
+node scripts/ai-review-rollout-watch.mjs owner/repo PR_NUMBER FULL_REVIEWED_SHA
+```
+
+This watcher remains supervised through merge. It polls current-head comments,
+formal reviews, inline findings, and resolved-thread state every five seconds,
+and requests a real current-head PR-gate rerun whenever that evidence changes.
+It supplies pre-merge routing because `issue_comment` workflows still use the old
+default branch until merge. It never posts review evidence or creates check
+results. A moved head, API error, missing rerunnable gate, timeout, or stopped
+watcher blocks the rollout: restore supervision and restart the full 120-second
+readiness window after real native evidence and required checks are green.
 
 Both reviewed-code paths execute the full evidence gate. A missing review,
 failed gate, or moved head blocks success. Automatic review requests and

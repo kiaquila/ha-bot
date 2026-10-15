@@ -7,7 +7,7 @@
 - [x] Wire unresolved findings and head-race validation into the required gate.
 - [x] Fix workflow routing and bounded rerun after active-gate completion.
 - [x] Connect substantive Node regressions to preflight and baseline CI.
-- [x] Full local preflight passed: 58 Python tests and 13 Node regression groups.
+- [x] Full local preflight passed: 58 Python tests and 14 Node regression groups.
 Final native review, required checks, thread resolution, and the 120-second
 readiness window must be confirmed in the PR immediately before merge.
 
@@ -64,3 +64,13 @@ older parser on the already labeled head. Runtime selection now honors the
 exact-head label on every same-head PR event, with writer permission checks;
 a retained label never applies to a different head. Workflow regressions cover
 unrelated labels, reopen, ready-for-review, synchronize, and a changed head.
+
+Native review identified two rollout-only gaps. Retained-label authorization
+now reads the original label actor from paginated issue events and verifies that
+writer, independently of later event actors. The initial rollout also requires
+an already reviewed local supervisor before label validation: it watches native
+comments/reviews/inline findings/thread state and reruns the real PR gate on
+changes while main still has the old issue-comment handler. API/head/timeout or
+watcher failure blocks merge and resets the required readiness window. Tests
+exercise changed summaries and thread state, unchanged snapshots, missing runs,
+head movement, and API failure without posting evidence or synthetic checks.

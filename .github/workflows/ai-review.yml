@@ -103,6 +103,7 @@ jobs:
           EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           REVIEW_LABEL: ${{ github.event.label.name }}
           PR_LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+          PR_NUMBER: ${{ steps.pr.outputs.pr_number }}
           GH_TOKEN: ${{ github.token }}
           CURRENT_HEAD_SHA: ${{ steps.pr.outputs.head_sha }}
           EVENT_NAME: ${{ github.event_name }}
@@ -122,7 +123,9 @@ jobs:
             fi
             reviewed_sha="$(node -e 'const labels = JSON.parse(process.env.PR_LABELS || "[]"); console.log(Array.isArray(labels) && labels.includes("gate:" + process.env.EVENT_HEAD_SHA) ? process.env.EVENT_HEAD_SHA : "")')"
             if [ -n "${reviewed_sha}" ]; then
-              permission="$(gh api "repos/${GITHUB_REPOSITORY}/collaborators/${GITHUB_ACTOR}/permission" --jq .permission)"
+              label_actor="$(gh api "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/events?per_page=100" --paginate --slurp | node -e 'const pages = JSON.parse(require("node:fs").readFileSync(0, "utf8")); const last = pages.flat().filter(e => e.event === "labeled" && e.label?.name === "gate:" + process.env.EVENT_HEAD_SHA).pop(); console.log(last?.actor?.login || "")')"
+              test -n "${label_actor}"
+              permission="$(gh api "repos/${GITHUB_REPOSITORY}/collaborators/${label_actor}/permission" --jq .permission)"
               case "$permission" in
                 admin|maintain|write) ;;
                 *) echo "::error::Reviewed gate validation requires a repository writer."; exit 1 ;;

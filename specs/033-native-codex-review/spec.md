@@ -26,7 +26,9 @@ regression tests, and the review contract. Runtime bot behavior is unchanged.
 - The gate rejects a head change during evidence collection and stale workflow events.
 - Initial rollout uses an eligible PR event with explicit full-SHA opt-in by a
   repository writer, read-only permissions, trusted policy, and the full native
-  evidence gate. A diagnostic dispatch cannot establish merge readiness.
+  evidence gate. An already reviewed local supervisor must route evidence changes
+  to real gate reruns until the new default-branch handler is available. A stopped
+  watcher blocks merge. A diagnostic dispatch cannot establish merge readiness.
 - Local preflight and required GitHub checks pass; native review covers the final head.
 
 ## Negative scenario
