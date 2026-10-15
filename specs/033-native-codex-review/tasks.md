@@ -7,7 +7,7 @@
 - [x] Wire unresolved findings and head-race validation into the required gate.
 - [x] Fix workflow routing and bounded rerun after active-gate completion.
 - [x] Connect substantive Node regressions to preflight and baseline CI.
-- [x] Full local preflight passed: 58 Python tests and 11 Node regression groups.
+- [x] Full local preflight passed: 58 Python tests and 12 Node regression groups.
 Final native review, required checks, thread resolution, and the 120-second
 readiness window must be confirmed in the PR immediately before merge.
 
@@ -40,3 +40,11 @@ The second native review found an equal-timestamp rerun race. Equality is now
 treated as changed evidence for both successful and failed runs. Strictly older
 evidence is deduplicated; missing timestamps also require conservative requeue.
 Regression cases cover equality, older evidence, and same-time run ordering.
+
+The third native review found equal-time formal-review selection and omission
+of pinned workflow-dispatch runs from requeue. Equal-time negative formal
+reviews now win regardless of API ordering; manual runs participate in the
+current-head rerun query, including after a skipped draft PR job. All manual
+validations must publish on the exact PR head, including the ordinary trusted
+script path. Runtime/workflow coverage also includes whitespace-prefixed legacy
+summaries.

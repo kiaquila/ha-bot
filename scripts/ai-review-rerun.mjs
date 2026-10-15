@@ -41,7 +41,9 @@ export function shouldRouteAiReviewRerunEvent(event, selectedAgent = "codex", co
 
 export function selectAiReviewRun(runs = [], headSha) {
   const matchingRuns = runs
-    .filter((run) => run.event === "pull_request" && run.head_sha === headSha)
+    .filter((run) => ["pull_request", "workflow_dispatch"].includes(run.event) && run.head_sha === headSha)
+    .filter((run) => activeStatuses.has(run.status) ||
+      (run.status === "completed" && (rerunnableConclusions.has(run.conclusion) || run.conclusion === "success")))
     .sort((left, right) => Date.parse(right.created_at || "") - Date.parse(left.created_at || "") || Number(right.id) - Number(left.id));
 
   const latest = matchingRuns[0];
@@ -104,7 +106,7 @@ export async function rerunAiReviewForPrHead({
   while (true) {
     if (!await currentHead()) return { action: "stale", message: "PR head moved or PR closed; rerun rejected." };
     const runs = await listPaginated(request, token, repository,
-      `/repos/${repository}/actions/workflows/ai-review.yml/runs?event=pull_request&head_sha=${encodeURIComponent(headSha)}`);
+      `/repos/${repository}/actions/workflows/ai-review.yml/runs?head_sha=${encodeURIComponent(headSha)}`);
     const selected = selectAiReviewRun(runs, headSha);
     if (selected.action === "already_running") {
       // Wait through completion: the active gate may already have read its last evidence snapshot.

@@ -39,7 +39,8 @@ collection, so a push during validation cannot turn a stale run green.
 ## Event handling and initial rollout
 
 Created and edited native comments wake the rerun router. Events are serialized
-per PR. The router waits with bounded backoff for an active gate to finish, then
+per PR. Both pull-request and exact-head manual workflow runs are eligible.
+The router waits with bounded backoff for an active gate to finish, then
 reevaluates evidence once if the latest run did not already evaluate it. It never
 reruns an older failed run in preference to a newer successful one, and checks the
 live head immediately before requesting a rerun.
@@ -47,7 +48,8 @@ live head immediately before requesting a rerun.
 Ordinary PR gates and event routers execute default-branch scripts. For initial
 rollout of a reviewed gate-format fix, a repository writer may explicitly dispatch
 AI Review on the reviewed branch with `reviewed_gate_sha` equal to its full SHA.
-The workflow requires that SHA to match the dispatch, checkout, and current PR
+Every manual validation must run on the PR head branch. The reviewed-code
+path also requires its explicit SHA to match the dispatch, checkout, and current PR
 head, uses the default-branch reviewer policy, grants only read permissions, and
 runs the full evidence gate. The operator must first confirm genuine native
 review and resolved threads for that exact SHA. A missing review, failed gate,

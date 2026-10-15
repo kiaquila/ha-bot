@@ -27,7 +27,7 @@ jobs:
         github.event.issue.pull_request &&
         github.event.comment.user.type == 'Bot' &&
         (
-          startsWith(github.event.comment.body, 'Codex Review:') ||
+          contains(github.event.comment.body, 'Codex Review:') ||
           contains(github.event.comment.body, '<!-- codex-review-receipt:') ||
           contains(github.event.comment.body, '<!-- codex-review-state:') ||
           contains(github.event.comment.body, '<!-- codex-pull-request-review-summary') ||

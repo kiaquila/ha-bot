@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
-import { isAcceptableCodexSummaryComment as accepts, classifyCodexNativeReview, latestCodexCommentResult } from '../scripts/ai-review-helpers.mjs';
+import { isAcceptableCodexSummaryComment as accepts, classifyCodexNativeReview, latestCodexNativeReviewResult, latestCodexCommentResult } from '../scripts/ai-review-helpers.mjs';
 import { shouldRouteAiReviewRerunEvent as routes, selectAiReviewRun, rerunAiReviewForPrHead } from '../scripts/ai-review-rerun.mjs';
 const sha = '2667f79cd7676ff331730cabf661d38dbbcddb0d';
 const before = '2026-10-15T10:00:00Z', after = '2026-10-15T10:01:00Z';
@@ -54,10 +54,10 @@ test('formal reviews preserve P0-P2 severity and require exact commit_id', () =>
 });
 const workflow = readFileSync(new URL('../.github/workflows/ai-review-rerun.yml', import.meta.url), 'utf8');
 const filter = workflow.match(/    if: \|\n([\s\S]*?)    runs-on:/)[1];
-const workflowRoutes = (event, name = 'issue_comment') => new Function('github', 'startsWith', 'contains', `return (${filter});`)({ event_name: name, event }, (s, p) => s?.startsWith(p), (s, p) => s?.includes(p));
+const workflowRoutes = (event, name = 'issue_comment') => new Function('github', 'startsWith', 'contains', `return (${filter});`)({ event_name: name, event }, (s, p) => s?.toLowerCase().startsWith(p.toLowerCase()), (s, p) => s?.toLowerCase().includes(p.toLowerCase()));
 test('actual workflow filter and runtime router handle created/edited signals', () => {
   assert.match(workflow, /types: \[created, edited\]/); assert.match(workflow, /cancel-in-progress: false/);
-  for (const action of ['created', 'edited']) for (const body of [legacy, receipt, summary(), receipt.replace('receipt:v1', 'receipt:v2'), '<!-- codex-review-state:v2 {} -->']) {
+  for (const action of ['created', 'edited']) for (const body of [legacy, '\n  ' + legacy, receipt, summary(), receipt.replace('receipt:v1', 'receipt:v2'), '<!-- codex-review-state:v2 {} -->']) {
     const event = { action, issue: { number: 1, pull_request: {} }, comment: comment(body) };
     assert.equal(workflowRoutes(event), true); assert.equal(routes(event), true);
     assert.equal(routes({ ...event, comment: comment(body, { user: { login: 'spoof[bot]', type: 'Bot' } }) }), false);
@@ -72,6 +72,7 @@ test('newest current-head run wins over old failed runs', () => {
   assert.equal(selectAiReviewRun([run(), run({ id: 11, created_at: after, conclusion: 'success' })], sha).action, 'already_success');
   assert.equal(selectAiReviewRun([run({ head_sha: 'a'.repeat(40) })], sha).action, 'not_found');
   assert.equal(selectAiReviewRun([run(), run({ id: 11, conclusion: 'success' })], sha).action, 'already_success');
+  assert.equal(selectAiReviewRun([run({ event: 'workflow_dispatch', conclusion: 'success' }), run({ id: 11, created_at: after, conclusion: 'skipped' })], sha).action, 'already_success');
 });
 async function requeue({ runs = [run()], move = false, evidenceUpdatedAt = after, waitMs = 5000 } = {}) {
   let time = 0, gets = 0, lists = 0, posts = 0;
@@ -80,12 +81,15 @@ async function requeue({ runs = [run()], move = false, evidenceUpdatedAt = after
     request: async (_token, _repo, path, options = {}) => {
       if (options.method === 'POST') { posts++; return null; }
       if (path.endsWith('/pulls/1')) { gets++; return { state: 'open', head: { sha: move && gets > 1 ? 'b'.repeat(40) : sha } }; }
+      assert.doesNotMatch(path, /event=pull_request/);
       return { workflow_runs: [runs[Math.min(lists++, runs.length - 1)]] };
     }
   }); return { result, posts, lists };
 }
 test('rerun covers active/completed gate, deduplication, updated successful gate and push race', async () => {
   assert.equal((await requeue()).posts, 1);
+  const manual = await requeue({ runs: [run({ event: 'workflow_dispatch', conclusion: 'success' })] });
+  assert.equal(manual.posts, 1); assert.equal(manual.result.run.event, 'workflow_dispatch');
   const active = await requeue({ runs: [run({ status: 'in_progress' }), run()] }); assert.equal(active.posts, 1); assert.equal(active.lists, 2);
   assert.equal((await requeue({ move: true })).posts, 0); assert.equal((await requeue({ evidenceUpdatedAt: '2026-10-15T09:59:59Z' })).posts, 0);
   assert.equal((await requeue({ evidenceUpdatedAt: before })).posts, 1);
@@ -121,6 +125,7 @@ test('actual manual runtime selection pins dispatch, checkout and PR head; ordin
       [{}, 0], [{ REVIEWED_GATE_SHA: '' }, 0], [{ EVENT_NAME: 'pull_request' }, 1],
       [{ CURRENT_HEAD_SHA: 'a'.repeat(40) }, 1], [{ GITHUB_SHA: 'a'.repeat(40) }, 1],
       [{ FIXTURE_CHECKOUT_SHA: 'a'.repeat(40) }, 1], [{ FIXTURE_DIRTY: '1' }, 1],
+      [{ REVIEWED_GATE_SHA: '', GITHUB_SHA: 'a'.repeat(40) }, 1],
       [{ REVIEWED_GATE_SHA: sha.slice(0, 10) }, 1], [{ SELECTED_AGENT: 'claude' }, 1]
     ]) {
       const output = join(dir, 'output');
@@ -135,4 +140,15 @@ test('actual manual runtime selection pins dispatch, checkout and PR head; ordin
         extra.REVIEWED_GATE_SHA === '' ? 'script_dir=.gate-trusted/scripts' : 'script_dir=scripts');
     }
   } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+
+test('equal-time formal reviews prefer failure independently of API order or ID', () => {
+  const positive = { id: 20, user: bot, commit_id: sha, state: 'APPROVED', submitted_at: after };
+  const negative = { ...positive, id: 10, state: 'CHANGES_REQUESTED' };
+  for (const reviews of [[positive, negative], [negative, positive]]) {
+    assert.equal(latestCodexNativeReviewResult(reviews, [], sha), 'fail');
+  }
+  assert.equal(latestCodexNativeReviewResult([positive, { ...negative, submitted_at: undefined }], [], sha), 'fail');
+  assert.equal(latestCodexNativeReviewResult([{ ...positive, submitted_at: undefined }], [], sha), null);
 });

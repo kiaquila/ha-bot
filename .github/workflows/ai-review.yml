@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       pr_number:
-        description: Pull request number to validate
+        description: PR number; dispatch ref must match its current head
         required: true
       trigger_mode:
         description: Must be skip; a trusted human requests native review separately
@@ -105,6 +105,9 @@ jobs:
         run: |
           set -euo pipefail
           script_dir=".gate-trusted/scripts"
+          if [ "${EVENT_NAME}" = "workflow_dispatch" ]; then
+            test "${GITHUB_SHA}" = "${CURRENT_HEAD_SHA}"
+          fi
           if [ -n "${REVIEWED_GATE_SHA}" ]; then
             test "${EVENT_NAME}" = "workflow_dispatch"
             test "${SELECTED_AGENT}" = "codex"

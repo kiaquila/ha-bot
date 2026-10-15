@@ -264,15 +264,15 @@ export function classifyCodexNativeReview(review, reviewComments = [], headSha, 
 }
 
 export function latestCodexNativeReviewResult(reviews = [], reviewComments = [], headSha, config = {}) {
-  return reviews
-    .map((review) => ({
-      review,
-      result: classifyCodexNativeReview(review, reviewComments, headSha, config)
-    }))
-    .filter((entry) => entry.result !== null)
-    .sort((left, right) =>
-      Date.parse(right.review.submitted_at || "") - Date.parse(left.review.submitted_at || "")
-    )[0]?.result || null;
+  const entries = reviews.map((review) => ({
+    time: Date.parse(review.submitted_at || ""),
+    result: classifyCodexNativeReview(review, reviewComments, headSha, config)
+  })).filter((entry) => entry.result !== null);
+  if (entries.some((entry) => entry.result === "fail" && !Number.isFinite(entry.time))) return "fail";
+  const dated = entries.filter((entry) => Number.isFinite(entry.time));
+  if (!dated.length) return null;
+  const latestTime = Math.max(...dated.map((entry) => entry.time));
+  return dated.some((entry) => entry.time === latestTime && entry.result === "fail") ? "fail" : "pass";
 }
 
 export function isAcceptableNativeReview(review, agent, headSha, config = {}) {
