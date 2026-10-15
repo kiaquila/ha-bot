@@ -7,7 +7,7 @@
 - [x] Wire unresolved findings and head-race validation into the required gate.
 - [x] Fix workflow routing and bounded rerun after active-gate completion.
 - [x] Connect substantive Node regressions to preflight and baseline CI.
-- [x] Full local preflight passed: 58 Python tests and 18 Node regression groups.
+- [x] Full local preflight passed: 58 Python tests and 21 Node regression groups.
 Final native review, required checks, thread resolution, and the 120-second
 readiness window must be confirmed in the PR immediately before merge.
 
@@ -82,10 +82,17 @@ The actual gate regression verifies that a previous passing formal review cannot
 hide a later blank edit. The privileged rerun workflow also fails closed if its
 trusted default-branch script is absent; it cannot fall back to PR code.
 
-A separate native thread-reopening finding remains open pending authorization
-for a bounded durable poller. The initial broad recurring rerun proposal was
-rejected by automatic approval review for shared-service scope/resource impact;
-no scheduled workflow has been added or activated.
+The user explicitly authorized a bounded durable thread poller after automatic
+approval review rejected a broader recurring rerun proposal. The added workflow
+runs only on main using main scripts, every five minutes, with at most one real
+rerun per invocation. Only a latest successful current-head eligible PR gate with
+an unresolved trusted Codex thread qualifies. Failed/active/diagnostic gates are
+excluded; head and gate status are rechecked before POST. Unknown POST outcomes
+abort rather than trying another candidate. The new regressions failed first
+because the poller module did not exist, then passed after implementation. They
+cover multiple candidates, failed/active gates, stale heads, author checks, API
+errors, pagination, and main-only workflow execution. Activation awaits normal
+reviewed merge; no privileged branch execution is used.
 
 A further native review found formal-review edits/dismissals absent from routing.
 Both workflow and runtime now subscribe to all three formal-review actions;

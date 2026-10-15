@@ -47,12 +47,24 @@ Recheck all applicable required pipelines after labeled validation and use
 normal protected merge. A moved head requires fresh review and a new explicit
 SHA label. No branch protection or trusted identity changes are needed.
 
+## Durable thread refresh
+
+GitHub Actions does not expose a review-thread resolution toggle trigger. The
+explicitly authorized bounded poller runs from main every five minutes using
+only main scripts and policy. It scans open non-draft PRs, paginated current-head
+eligible PR runs and Codex threads. Only a latest successful gate with an open
+Codex thread qualifies; failed/active/diagnostic runs cannot be retried. Before
+its only rerun POST, it rechecks the gate status and live open head, then returns.
+API errors fail closed, including an unknown POST outcome. A red gate waits for
+ordinary review events or operator action. Schedule delays remain possible;
+merge owners still recheck threads immediately before merge.
+
 ## Verification
 
 Original reproduction: identical body accepted=true without the receipt prefix,
 accepted=false with the receipt prefix. Regression coverage executes the gate
 CLI with an intercepted GitHub API, and evaluates the actual workflow condition.
 
-Local verification passed: `pnpm run preflight` (58 Python tests and 18 Node
+Local verification passed: `pnpm run preflight` (58 Python tests and 21 Node
 regression groups), plus `git diff --check`. Full observed receipt and summary
 fixtures are in `tests/fixtures/native-codex-review.json`, with public sources.

@@ -29,6 +29,9 @@ regression tests, and the review contract. Runtime bot behavior is unchanged.
   evidence gate. An already reviewed local supervisor must route evidence changes
   to real gate reruns until the new default-branch handler is available. A stopped
   watcher blocks merge. A diagnostic dispatch cannot establish merge readiness.
+- A default-branch-only five-minute poller requeues at most one successful
+  current-head PR gate with an unresolved Codex thread per invocation. It never
+  retries failed/active gates or diagnostic runs and rechecks head/status before POST.
 - Local preflight and required GitHub checks pass; native review covers the final head.
 
 ## Negative scenario

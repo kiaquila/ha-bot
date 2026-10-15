@@ -52,6 +52,16 @@ then reevaluates evidence once if the latest run did not already evaluate it. It
 never reruns an older failed PR run in preference to a newer successful PR run,
 and checks the live head immediately before requesting a rerun.
 
+A bounded default-branch poller checks thread state every five minutes because
+Actions has no thread resolution-toggle trigger. It reruns at most one real gate
+per invocation, only for an open non-draft PR whose latest current-head eligible
+PR gate is successful and has an unresolved trusted Codex thread. It rechecks
+that successful run and live head before POST. Failed or active gates and manual
+diagnostics are excluded. All scripts and policy come from main. GitHub can delay
+scheduled runs; the merge owner must still recheck current threads immediately
+before merge. Once red, the gate waits for ordinary evidence events or an
+operator rerun after resolution, avoiding repeated scheduled failures.
+
 Ordinary PR gates and event routers execute default-branch scripts. For initial
 rollout of a reviewed gate-format fix, a repository writer can add the PR label
 `gate:<full-reviewed-head-sha>`. The PR event finds the label's original actor in paginated issue events and
