@@ -7,9 +7,9 @@
 - [x] Wire unresolved findings and head-race validation into the required gate.
 - [x] Fix workflow routing and bounded rerun after active-gate completion.
 - [x] Connect substantive Node regressions to preflight and baseline CI.
-- [ ] Record successful full local preflight.
-- [ ] Obtain current-head native review, resolve findings, and pass required checks.
-- [ ] Verify readiness, observe 120 seconds, recheck, and merge normally.
+- [x] Full local preflight passed: 58 Python tests and 10 Node regression groups.
+Final native review, required checks, thread resolution, and the 120-second
+readiness window must be confirmed in the PR immediately before merge.
 
 ## Decisions
 

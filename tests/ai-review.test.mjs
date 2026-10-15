@@ -39,6 +39,7 @@ test('edited summary uses updated_at; newer negative/unfinished result overrides
   const old = comment(receipt, { created_at: before });
   const edited = comment(summary(), { id: 1, created_at: '2026-10-14T10:00:00Z', updated_at: after });
   assert.equal(latestCodexCommentResult([old, edited], sha, marker), 'pass');
+  assert.equal(latestCodexCommentResult([old, comment(receipt.replace('receipt:v1', 'receipt:v2'))], sha, marker), 'pending');
   assert.equal(latestCodexCommentResult([old, { ...edited, body: summary({ status: 'in_progress' }) }], sha, marker), 'pending');
   assert.equal(latestCodexCommentResult([old, { ...edited, body: summary({ has_any_findings: true }) }], sha, marker), 'fail');
   assert.equal(latestCodexCommentResult([comment(receipt), { ...edited, body: summary({ status: 'in_progress' }) }], sha, marker), 'pending');
@@ -55,7 +56,7 @@ const filter = workflow.match(/    if: \|\n([\s\S]*?)    runs-on:/)[1];
 const workflowRoutes = (event, name = 'issue_comment') => new Function('github', 'startsWith', 'contains', `return (${filter});`)({ event_name: name, event }, (s, p) => s?.startsWith(p), (s, p) => s?.includes(p));
 test('actual workflow filter and runtime router handle created/edited signals', () => {
   assert.match(workflow, /types: \[created, edited\]/); assert.match(workflow, /cancel-in-progress: false/);
-  for (const action of ['created', 'edited']) for (const body of [legacy, receipt, summary()]) {
+  for (const action of ['created', 'edited']) for (const body of [legacy, receipt, summary(), receipt.replace('receipt:v1', 'receipt:v2')]) {
     const event = { action, issue: { number: 1, pull_request: {} }, comment: comment(body) };
     assert.equal(workflowRoutes(event), true); assert.equal(routes(event), true);
     assert.equal(routes({ ...event, comment: comment(body, { user: { login: 'spoof[bot]', type: 'Bot' } }) }), false);

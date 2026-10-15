@@ -138,7 +138,7 @@ const summaryMarker = "<!-- codex-pull-request-review-summary -->";
 export function isCodexReviewSignal(body) {
   const text = String(body || "").trim();
   return /^Codex Review:/i.test(text) ||
-    text.startsWith(receiptMarker) || text.startsWith(summaryMarker);
+    /^<!-- codex-(?:review-receipt:|pull-request-review-summary|review-state:)/.test(text);
 }
 
 function exactlyKeys(value, keys) {

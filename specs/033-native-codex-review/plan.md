@@ -32,3 +32,7 @@ write credentials.
 Original reproduction: identical body accepted=true without the receipt prefix,
 accepted=false with the receipt prefix. Regression coverage executes the gate
 CLI with an intercepted GitHub API, and evaluates the actual workflow condition.
+
+Local verification passed: `pnpm run preflight` (58 Python tests and 10 Node
+regression groups), plus `git diff --check`. Full observed receipt and summary
+fixtures are in `tests/fixtures/native-codex-review.json`, with public sources.
