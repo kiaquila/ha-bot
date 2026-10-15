@@ -63,7 +63,9 @@ export async function watchRolloutReview({
       allPages(request, repository, `/repos/${repository}/pulls/${prNumber}/comments`),
       reviewThreads(request, repository, prNumber)
     ]);
-    const evidence = JSON.stringify([comments, reviews, inline, threads]);
+    const evidence = JSON.stringify([
+      comments.filter((comment) => comment.user?.login !== 'github-actions[bot]'), reviews, inline, threads
+    ]);
     if (previous !== null && evidence !== previous) {
       log(`Review evidence changed on ${headSha}; requeueing the real PR gate.`);
       const result = await rerunAiReviewForPrHead({ token: 'authorized-gh-session', repository,

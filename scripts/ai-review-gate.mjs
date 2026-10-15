@@ -5,7 +5,6 @@ import {
   hasHeadUpdateBetweenTimestamps,
   isAcceptableClaudeComment,
   codexCommentTime,
-  isCodexReviewSignal,
   isTrustedReviewLogin,
   latestCodexCommentResult,
   isAcceptableNativeReview,
@@ -275,13 +274,6 @@ if (process.env.GITHUB_STEP_SUMMARY) {
   appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${failureComment}\n`);
 }
 
-if (outcome === "fail") {
-  try {
-    await createComment(failureComment);
-  } catch (error) {
-    console.warn(`Could not post AI Review gate failure comment: ${error.message}`);
-  }
-}
 
 const outcomeDetail = outcome === "missing_marker"
   ? " Missing trusted current-head AI review request marker."

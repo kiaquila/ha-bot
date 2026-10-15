@@ -56,14 +56,15 @@ const workflow = readFileSync(new URL('../.github/workflows/ai-review-rerun.yml'
 const filter = workflow.match(/    if: \|\n([\s\S]*?)    runs-on:/)[1];
 const workflowRoutes = (event, name = 'issue_comment') => new Function('github', 'startsWith', 'contains', `return (${filter});`)({ event_name: name, event }, (s, p) => s?.toLowerCase().startsWith(p.toLowerCase()), (s, p) => s?.toLowerCase().includes(p.toLowerCase()));
 test('actual workflow filter and runtime router handle created/edited signals', () => {
-  assert.match(workflow, /types: \[created, edited\]/); assert.match(workflow, /cancel-in-progress: false/);
+  assert.match(workflow, /types: \[created, edited, deleted\]/); assert.match(workflow, /cancel-in-progress: false/);
   for (const action of ['created', 'edited']) for (const body of [legacy, '\n  ' + legacy, receipt, summary(), receipt.replace('receipt:v1', 'receipt:v2'), '<!-- codex-review-state:v2 {} -->']) {
     const event = { action, issue: { number: 1, pull_request: {} }, comment: comment(body) };
     assert.equal(workflowRoutes(event), true); assert.equal(routes(event), true);
     assert.equal(routes({ ...event, comment: comment(body, { user: { login: 'spoof[bot]', type: 'Bot' } }) }), false);
-    assert.equal(routes({ ...event, issue: {} }), false); assert.equal(routes({ ...event, action: 'deleted' }), false);
+    assert.equal(routes({ ...event, issue: {} }), false); assert.equal(routes({ ...event, action: 'deleted' }), true);
+    assert.equal(routes({ ...event, action: 'unsupported' }), false);
   }
-  assert.equal(routes({ action: 'created', issue: { pull_request: {} }, comment: comment('👍 Completed') }), false);
+  assert.equal(routes({ action: 'created', issue: { pull_request: {} }, comment: comment('👍 Completed') }), true);
   assert.equal(routes({ action: 'submitted', review: { user: bot } }), true);
   assert.equal(workflowRoutes({ review: { user: bot } }, 'pull_request_review'), true);
 });
@@ -210,7 +211,7 @@ test('eligible labeled PR validation requires a writer and exact event, checkout
 
 test('pre-merge rollout watcher requeues real PR gates on edited evidence and thread changes', async () => {
   const { watchRolloutReview } = await import('../scripts/ai-review-rollout-watch.mjs');
-  async function watch({ changed = true, threadChange = false, move = false, missingRun = false, apiError = false } = {}) {
+  async function watch({ changed = true, threadChange = false, move = false, missingRun = false, apiError = false, gateComments = false } = {}) {
     let tick = 0;
     const posts = [];
     await watchRolloutReview({ repository: 'example/repo', prNumber: 1, headSha: sha,
@@ -224,7 +225,7 @@ test('pre-merge rollout watcher requeues real PR gates on edited evidence and th
         if (path.endsWith('/pulls/1')) return { state: tick >= 2 ? 'closed' : 'open', merged: tick >= 2,
           head: { sha: move && tick > 0 ? 'a'.repeat(40) : sha } };
         if (path.includes('/actions/workflows/')) return { workflow_runs: missingRun ? [] : [run({ conclusion: 'success' })] };
-        if (path.includes('/issues/1/comments')) return [{ id: 1, body: changed && tick > 0 ? summary({ status: 'in_progress' }) : summary() }];
+        if (path.includes('/issues/1/comments')) return [{ id: 1, user: bot, body: changed && tick > 0 ? summary({ status: 'in_progress' }) : summary() }, ...(gateComments && tick > 0 ? [{ id: 2, user: { login: 'github-actions[bot]' }, body: 'AI Review gate failed.' }] : [])];
         return [];
       }
     });
@@ -232,6 +233,7 @@ test('pre-merge rollout watcher requeues real PR gates on edited evidence and th
   }
   assert.deepEqual(await watch(), ['/repos/example/repo/actions/runs/10/rerun']);
   assert.deepEqual(await watch({ changed: false }), []);
+  assert.deepEqual(await watch({ changed: false, gateComments: true }), []);
   assert.deepEqual(await watch({ changed: false, threadChange: true }), ['/repos/example/repo/actions/runs/10/rerun']);
   await assert.rejects(watch({ move: true }), /head moved/);
   await assert.rejects(watch({ missingRun: true }), /could not invalidate/);
@@ -277,4 +279,16 @@ test('inline review mutations route and all blocking priority mentions are prese
   }
   const review = { id: 1, user: bot, commit_id: sha, state: 'COMMENTED' };
   assert.equal(classifyCodexNativeReview(review, [{ pull_request_review_id: 1, user: bot, body: '[P3] advisory with P1 blocker' }], sha), 'fail');
+});
+
+
+test('all new trusted Codex top-level comments route consistently with pending classification', () => {
+  for (const body of ['', 'Unrecognized format', '<!-- CODEX-REVIEW-RECEIPT:v2 -->']) {
+    const event = { action: 'created', issue: { pull_request: {} }, comment: comment(body) };
+    assert.equal(workflowRoutes(event), true); assert.equal(routes(event), true);
+    assert.equal(routes({ ...event, action: 'deleted' }), true);
+    assert.equal(rerunEvidenceUpdatedAt({ ...event, action: 'deleted' }), null);
+    assert.equal(latestCodexCommentResult([comment(receipt, { updated_at: before }), event.comment], sha, marker), 'pending');
+  }
+  assert.equal(routes({ action: 'created', issue: { pull_request: {} }, comment: comment('AI Review gate failed.', { user: { login: 'github-actions[bot]' } }) }), false);
 });

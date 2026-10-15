@@ -3,7 +3,6 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import {
   extractClaudeOutcome,
-  isCodexReviewSignal,
   isTrustedReviewLogin
 } from "./ai-review-helpers.mjs";
 import { blueprintRoot, readConfig } from "./shared.mjs";
@@ -29,13 +28,12 @@ export function shouldRouteAiReviewRerunEvent(event, selectedAgent = "codex", co
       ["codex", "gemini"].includes(agent) && isTrustedReviewLogin(event.comment.user?.login, agent, config);
   }
 
-  if (!event?.issue?.pull_request || !event?.comment || !["created", "edited"].includes(event.action)) return false;
+  if (!event?.issue?.pull_request || !event?.comment || !["created", "edited", "deleted"].includes(event.action)) return false;
   const body = String(event.comment.body || "");
   const login = event.comment.user?.login;
 
   if (agent === "codex") {
-    const previous = event.action === "edited" ? event.changes?.body?.from : null;
-    return (isCodexReviewSignal(body) || isCodexReviewSignal(previous)) && isTrustedReviewLogin(login, "codex", config);
+    return isTrustedReviewLogin(login, "codex", config);
   }
 
   if (agent === "claude") {
@@ -50,7 +48,7 @@ export function rerunEvidenceUpdatedAt(event) {
   // REST formal reviews retain submitted_at after edits/dismissal. Missing time
   // deliberately forces conservative requeue of an already successful gate.
   if (event.review) return event.action === "submitted" ? event.review.submitted_at : null;
-  if (event.pull_request && event.comment && event.action !== "created") return null;
+  if (event.action === "deleted" || (event.pull_request && event.comment && event.action !== "created")) return null;
   return event.comment?.updated_at || event.comment?.created_at;
 }
 

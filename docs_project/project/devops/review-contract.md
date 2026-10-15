@@ -43,8 +43,8 @@ Submitted, edited, and dismissed formal reviews wake the router. Edits and
 dismissals force conservative requeue because their original `submitted_at`
 cannot establish the mutation time. Inline review comments also route on
 creation, editing, and deletion; edited/deleted inline timestamps never suppress
-requeue. Created and edited native comments also wake it. An edit that removes
-the marker still routes from the previous body. Newer trusted comments with
+requeue. Created, edited, and deleted native comments also wake it. All trusted Codex top-level comments route, including unrecognized or blank
+new content; removing a marker cannot suppress requeue. Newer trusted comments with
 unrecognized/blank content remain pending instead of exposing an older success. Events are serialized
 per PR. The latest eligible pull-request gate takes priority over diagnostic
 manual runs. The router waits with bounded backoff for an active gate to finish,
@@ -81,8 +81,10 @@ This watcher remains supervised through merge. It polls current-head comments,
 formal reviews, inline findings, and resolved-thread state every five seconds,
 and requests a real current-head PR-gate rerun whenever that evidence changes.
 It supplies pre-merge routing because `issue_comment` workflows still use the old
-default branch until merge. It never posts review evidence or creates check
-results. A moved head, API error, missing rerunnable gate, timeout, or stopped
+default branch until merge. It ignores github-actions-generated issue comments, preventing failure-comment
+feedback loops. The read-only gate reports failures through logs/job summary
+without posting issue comments. The watcher never posts review evidence or
+creates check results. A moved head, API error, missing rerunnable gate, timeout, or stopped
 watcher blocks the rollout: restore supervision and restart the full 120-second
 readiness window after real native evidence and required checks are green.
 

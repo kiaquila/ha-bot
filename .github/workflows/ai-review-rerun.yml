@@ -6,7 +6,7 @@ on:
   pull_request_review_comment:
     types: [created, edited, deleted]
   issue_comment:
-    types: [created, edited]
+    types: [created, edited, deleted]
 
 permissions:
   actions: write
@@ -31,21 +31,7 @@ jobs:
       ) ||
       (
         github.event.issue.pull_request &&
-        github.event.comment.user.type == 'Bot' &&
-        (
-          contains(github.event.comment.body, 'Codex Review:') ||
-          contains(github.event.comment.body, '<!-- codex-review-receipt:') ||
-          contains(github.event.comment.body, '<!-- codex-review-state:') ||
-          contains(github.event.comment.body, '<!-- codex-pull-request-review-summary') ||
-          contains(github.event.comment.body, 'AI_REVIEW_OUTCOME:') ||
-          (github.event.action == 'edited' && (
-            contains(github.event.changes.body.from, 'Codex Review:') ||
-            contains(github.event.changes.body.from, '<!-- codex-review-receipt:') ||
-            contains(github.event.changes.body.from, '<!-- codex-review-state:') ||
-            contains(github.event.changes.body.from, '<!-- codex-pull-request-review-summary') ||
-            contains(github.event.changes.body.from, 'AI_REVIEW_OUTCOME:')
-          ))
-        )
+        github.event.comment.user.type == 'Bot'
       )
     runs-on: ubuntu-latest
     timeout-minutes: 5

@@ -3,7 +3,10 @@ const f = JSON.parse(process.env.AI_REVIEW_FIXTURE);
 const start = '2026-10-15T10:00:00Z', end = '2026-10-15T10:01:00Z';
 const bot = { login: 'chatgpt-codex-connector[bot]' };
 let heads = 0;
-globalThis.fetch = async (url) => {
+let issueWrites = 0;
+process.on('exit', () => { if (issueWrites) process.exitCode = 9; });
+globalThis.fetch = async (url, options = {}) => {
+  if (url.includes('/issues/1/comments') && options.method === 'POST') issueWrites++;
   let data;
   if (url.endsWith('/pulls/1')) data = { head: { sha: f.headRace && ++heads > 1 ? 'a'.repeat(40) : f.sha } };
   else if (url.includes('/issues/1/comments')) data = [

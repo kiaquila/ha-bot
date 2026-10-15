@@ -7,7 +7,7 @@
 - [x] Wire unresolved findings and head-race validation into the required gate.
 - [x] Fix workflow routing and bounded rerun after active-gate completion.
 - [x] Connect substantive Node regressions to preflight and baseline CI.
-- [x] Full local preflight passed: 58 Python tests and 17 Node regression groups.
+- [x] Full local preflight passed: 58 Python tests and 18 Node regression groups.
 Final native review, required checks, thread resolution, and the 120-second
 readiness window must be confirmed in the PR immediately before merge.
 
@@ -98,3 +98,12 @@ The same mutation path covers inline review comments on create/edit/delete,
 including conservative requeue when edit/deletion retains an old timestamp.
 Approved reviews inspect inline findings, and mixed P3/P1 text keeps its blocking
 priority rather than taking only the first priority mention.
+
+The next native review found newly created unrecognized trusted comments missing
+from routing, despite pending classification. All trusted Codex top-level comments
+now route; other identities still fail the trusted-runtime check. The rollout
+watcher ignores github-actions issue comments, and read-only gate failures only
+write logs/job summary, preventing self-generated comment/rerun feedback. The
+actual gate fixture fails if any test case attempts an issue-comment write.
+Deleted top-level native comments also wake the gate without reusing their old
+creation timestamp, so removal of the only positive evidence is reevaluated.
