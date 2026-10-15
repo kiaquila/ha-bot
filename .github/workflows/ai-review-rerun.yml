@@ -2,7 +2,9 @@ name: AI Review Rerun
 
 on:
   pull_request_review:
-    types: [submitted]
+    types: [submitted, edited, dismissed]
+  pull_request_review_comment:
+    types: [created, edited, deleted]
   issue_comment:
     types: [created, edited]
 
@@ -22,6 +24,10 @@ jobs:
       (
         github.event_name == 'pull_request_review' &&
         github.event.review.user.type == 'Bot'
+      ) ||
+      (
+        github.event_name == 'pull_request_review_comment' &&
+        github.event.comment.user.type == 'Bot'
       ) ||
       (
         github.event.issue.pull_request &&

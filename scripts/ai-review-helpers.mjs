@@ -128,8 +128,8 @@ export function containsBlockingSeverity(body, agent) {
 }
 
 export function extractCodexPriority(body) {
-  const match = String(body || "").match(/\bP([0-3])\b/i);
-  return match ? Number(match[1]) : null;
+  const matches = [...String(body || "").matchAll(/\bP([0-3])\b/gi)];
+  return matches.length ? Math.min(...matches.map((match) => Number(match[1]))) : null;
 }
 
 const receiptMarker = "<!-- codex-review-receipt:v1 -->";
@@ -248,9 +248,8 @@ export function classifyCodexNativeReview(review, reviewComments = [], headSha, 
   if (!isTrustedReviewLogin(login, "codex", config)) return null;
   if (containsBlockingSeverity(review.body, "codex")) return "fail";
 
-  if (review.state === "APPROVED") return "pass";
-  if (review.state === "CHANGES_REQUESTED") return "fail";
-  if (review.state !== "COMMENTED") return null;
+  if (["CHANGES_REQUESTED", "DISMISSED"].includes(review.state)) return "fail";
+  if (!["APPROVED", "COMMENTED"].includes(review.state)) return null;
 
   const commentsForReview = reviewComments.filter((comment) =>
     comment.pull_request_review_id === review.id &&
@@ -268,7 +267,9 @@ export function latestCodexNativeReviewResult(reviews = [], reviewComments = [],
     time: Date.parse(review.submitted_at || ""),
     result: classifyCodexNativeReview(review, reviewComments, headSha, config)
   })).filter((entry) => entry.result !== null);
-  if (entries.some((entry) => entry.result === "fail" && !Number.isFinite(entry.time))) return "fail";
+  // An edited old review retains submitted_at. No newer approval may conceal a
+  // current-head negative review or dismissal, regardless of that old timestamp.
+  if (entries.some((entry) => entry.result === "fail")) return "fail";
   const dated = entries.filter((entry) => Number.isFinite(entry.time));
   if (!dated.length) return null;
   const latestTime = Math.max(...dated.map((entry) => entry.time));

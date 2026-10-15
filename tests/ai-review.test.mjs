@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { isAcceptableCodexSummaryComment as accepts, classifyCodexNativeReview, latestCodexNativeReviewResult, latestCodexCommentResult } from '../scripts/ai-review-helpers.mjs';
-import { shouldRouteAiReviewRerunEvent as routes, selectAiReviewRun, rerunAiReviewForPrHead } from '../scripts/ai-review-rerun.mjs';
+import { shouldRouteAiReviewRerunEvent as routes, selectAiReviewRun, rerunAiReviewForPrHead, rerunEvidenceUpdatedAt } from '../scripts/ai-review-rerun.mjs';
 const sha = '2667f79cd7676ff331730cabf661d38dbbcddb0d';
 const before = '2026-10-15T10:00:00Z', after = '2026-10-15T10:01:00Z';
 const bot = { login: 'chatgpt-codex-connector[bot]', type: 'Bot' };
@@ -248,4 +248,33 @@ test('marker-removing edits route from the old body and cannot hide behind previ
   const result = gate({ formal: true, formalSubmittedAt: '2026-10-15T10:00:30Z', body: '', edited: true });
   assert.equal(result.status, 1, result.stdout + result.stderr);
   assert.doesNotMatch(workflow, /first-install|script_dir=scripts/);
+});
+
+
+test('formal review edits and dismissals requeue without the original submission timestamp', () => {
+  assert.match(workflow, /types: \[submitted, edited, dismissed\]/);
+  for (const action of ['submitted', 'edited', 'dismissed']) {
+    const event = { action, review: { user: bot, submitted_at: before } };
+    assert.equal(workflowRoutes(event, 'pull_request_review'), true);
+    assert.equal(routes(event), true);
+    assert.equal(rerunEvidenceUpdatedAt(event), action === 'submitted' ? before : null);
+    assert.equal(routes({ ...event, review: { ...event.review, user: { login: 'spoof[bot]' } } }), false);
+  }
+  const approval = { id: 1, user: bot, commit_id: sha, state: 'APPROVED', submitted_at: after };
+  assert.equal(classifyCodexNativeReview({ ...approval, state: 'DISMISSED' }, [], sha), 'fail');
+  assert.equal(classifyCodexNativeReview(approval, [{ pull_request_review_id: 1, user: bot, body: '[P1] defect' }], sha), 'fail');
+  assert.equal(latestCodexNativeReviewResult([{ ...approval, id: 2 }, { ...approval, body: '[P1] edited old review', submitted_at: before }], [], sha), 'fail');
+});
+
+
+test('inline review mutations route and all blocking priority mentions are preserved', () => {
+  for (const action of ['created', 'edited', 'deleted']) {
+    const event = { action, pull_request: { number: 1 }, comment: { ...comment('[P3] advisory'), updated_at: after } };
+    assert.equal(workflowRoutes(event, 'pull_request_review_comment'), true);
+    assert.equal(routes(event), true);
+    assert.equal(rerunEvidenceUpdatedAt(event), action === 'created' ? after : null);
+    assert.equal(routes({ ...event, comment: comment('', { user: { login: 'spoof[bot]' } }) }), false);
+  }
+  const review = { id: 1, user: bot, commit_id: sha, state: 'COMMENTED' };
+  assert.equal(classifyCodexNativeReview(review, [{ pull_request_review_id: 1, user: bot, body: '[P3] advisory with P1 blocker' }], sha), 'fail');
 });

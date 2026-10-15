@@ -19,9 +19,14 @@ export function shouldRouteAiReviewRerunEvent(event, selectedAgent = "codex", co
   const agent = normalizeAgent(selectedAgent);
 
   if (event?.review) {
-    if (event.action !== "submitted") return false;
+    if (!["submitted", "edited", "dismissed"].includes(event.action)) return false;
     return ["codex", "gemini"].includes(agent) &&
       isTrustedReviewLogin(event.review.user?.login, agent, config);
+  }
+
+  if (event?.pull_request?.number && event?.comment) {
+    return ["created", "edited", "deleted"].includes(event.action) &&
+      ["codex", "gemini"].includes(agent) && isTrustedReviewLogin(event.comment.user?.login, agent, config);
   }
 
   if (!event?.issue?.pull_request || !event?.comment || !["created", "edited"].includes(event.action)) return false;
@@ -39,6 +44,14 @@ export function shouldRouteAiReviewRerunEvent(event, selectedAgent = "codex", co
   }
 
   return false;
+}
+
+export function rerunEvidenceUpdatedAt(event) {
+  // REST formal reviews retain submitted_at after edits/dismissal. Missing time
+  // deliberately forces conservative requeue of an already successful gate.
+  if (event.review) return event.action === "submitted" ? event.review.submitted_at : null;
+  if (event.pull_request && event.comment && event.action !== "created") return null;
+  return event.comment?.updated_at || event.comment?.created_at;
 }
 
 export function selectAiReviewRun(runs = [], headSha) {
@@ -156,7 +169,7 @@ async function main() {
 
   const prNumber = event.pull_request?.number || event.issue?.number;
   const pull = await defaultRequest(token, repository, `/repos/${repository}/pulls/${prNumber}`);
-  const evidenceUpdatedAt = event.comment?.updated_at || event.comment?.created_at || event.review?.submitted_at;
+  const evidenceUpdatedAt = rerunEvidenceUpdatedAt(event);
   const evidenceHead = event.review?.commit_id;
   if (evidenceHead && evidenceHead !== pull.head?.sha) {
     console.log("AI Review rerun skipped: review belongs to an obsolete head.");

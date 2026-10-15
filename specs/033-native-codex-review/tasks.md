@@ -7,7 +7,7 @@
 - [x] Wire unresolved findings and head-race validation into the required gate.
 - [x] Fix workflow routing and bounded rerun after active-gate completion.
 - [x] Connect substantive Node regressions to preflight and baseline CI.
-- [x] Full local preflight passed: 58 Python tests and 15 Node regression groups.
+- [x] Full local preflight passed: 58 Python tests and 17 Node regression groups.
 Final native review, required checks, thread resolution, and the 120-second
 readiness window must be confirmed in the PR immediately before merge.
 
@@ -86,3 +86,15 @@ A separate native thread-reopening finding remains open pending authorization
 for a bounded durable poller. The initial broad recurring rerun proposal was
 rejected by automatic approval review for shared-service scope/resource impact;
 no scheduled workflow has been added or activated.
+
+A further native review found formal-review edits/dismissals absent from routing.
+Both workflow and runtime now subscribe to all three formal-review actions;
+mutations force requeue without deduplicating against the original submitted_at.
+Dismissal fails closed; approved reviews still inspect inline severity. Any
+current-head negative formal review blocks even if its old submission time
+precedes a newer approval, because edits do not change that timestamp.
+
+The same mutation path covers inline review comments on create/edit/delete,
+including conservative requeue when edit/deletion retains an old timestamp.
+Approved reviews inspect inline findings, and mixed P3/P1 text keeps its blocking
+priority rather than taking only the first priority mention.

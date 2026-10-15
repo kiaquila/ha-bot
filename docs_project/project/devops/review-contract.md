@@ -9,8 +9,9 @@ Only configured trusted Codex identities provide evidence. A trusted human
 request records a marker for the current full head SHA. Default-branch scripts
 and configuration define the trust policy; PR configuration cannot add reviewers.
 
-Native formal reviews require an exact current-head `commit_id` and submission
-after the request. P0, P1, and P2 findings block merge. Every unresolved Codex
+Native positive formal reviews require an exact current-head `commit_id` and
+submission after the request. Every current-head negative or dismissed review
+blocks; a later approval cannot conceal an older review edited to add a finding. P0, P1, and P2 findings block merge. Every unresolved Codex
 thread also blocks merge, including P3 and outdated threads. New request markers
 do not erase current-head failures or unresolved findings.
 
@@ -38,7 +39,11 @@ collection, so a push during validation cannot turn a stale run green.
 
 ## Event handling and initial rollout
 
-Created and edited native comments wake the rerun router. An edit that removes
+Submitted, edited, and dismissed formal reviews wake the router. Edits and
+dismissals force conservative requeue because their original `submitted_at`
+cannot establish the mutation time. Inline review comments also route on
+creation, editing, and deletion; edited/deleted inline timestamps never suppress
+requeue. Created and edited native comments also wake it. An edit that removes
 the marker still routes from the previous body. Newer trusted comments with
 unrecognized/blank content remain pending instead of exposing an older success. Events are serialized
 per PR. The latest eligible pull-request gate takes priority over diagnostic
