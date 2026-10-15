@@ -7,7 +7,7 @@
 - [x] Wire unresolved findings and head-race validation into the required gate.
 - [x] Fix workflow routing and bounded rerun after active-gate completion.
 - [x] Connect substantive Node regressions to preflight and baseline CI.
-- [x] Full local preflight passed: 58 Python tests and 10 Node regression groups.
+- [x] Full local preflight passed: 58 Python tests and 11 Node regression groups.
 Final native review, required checks, thread resolution, and the 120-second
 readiness window must be confirmed in the PR immediately before merge.
 
@@ -25,5 +25,13 @@ readiness window must be confirmed in the PR immediately before merge.
   official GitHub Actions and OpenAI documentation were read directly.
 - Initial test-file creation failed when the execution host temporarily exhausted
   disk space. Free space recovered before retry; no source or cache was deleted.
-- Initial rollout still needs real native evidence compatible with the old gate.
-  The updated gate cannot validate its own PR through default-branch scripts yet.
+- Initial rollout uses explicit read-only validation of the reviewed, pinned
+  gate commit. The full native evidence checks still apply; default-branch
+  scripts remain the ordinary automatic path.
+
+## Native review follow-up
+
+The first native review identified a missing workflow condition for standalone
+`codex-review-state:` signals. Added the condition and covered it through the
+actual workflow expression and runtime router. Also covered resolved formal P3
+reviews alongside structured summaries so advisory severity remains compatible.

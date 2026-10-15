@@ -26,6 +26,9 @@ Supported top-level evidence:
   code review must be completed for the full current SHA with both findings flags
   false and a consistent completed code-review table row. Duplicate JSON keys,
   markers, malformed fields, or contradictory visible evidence are rejected.
+  A summary with resolved findings cannot pass alone; a matching acceptable native
+  formal review must establish their nonblocking severity. Security-review
+  unresolved flags also block the gate.
 
 Edited summaries use `updated_at`, even when `created_at` precedes the request.
 The latest trusted signal determines the outcome; an older positive result cannot
@@ -41,11 +44,15 @@ reevaluates evidence once if the latest run did not already evaluate it. It neve
 reruns an older failed run in preference to a newer successful one, and checks the
 live head immediately before requesting a rerun.
 
-Gate and router scripts continue to run from the default branch. The initial
-compatibility PR must pass that existing gate using genuine native formal review
-or legacy evidence; no PR-script fallback, fabricated check, or protection bypass
-is permitted. If the native service produces only an unsupported new format,
-keep the PR open until a supported genuine review path is available.
+Ordinary PR gates and event routers execute default-branch scripts. For initial
+rollout of a reviewed gate-format fix, a repository writer may explicitly dispatch
+AI Review on the reviewed branch with `reviewed_gate_sha` equal to its full SHA.
+The workflow requires that SHA to match the dispatch, checkout, and current PR
+head, uses the default-branch reviewer policy, grants only read permissions, and
+runs the full evidence gate. The operator must first confirm genuine native
+review and resolved threads for that exact SHA. A missing review, failed gate,
+or moved head blocks merge. Automatic triggers and first-install success skips
+are not supported by this validation workflow.
 
 ## Claude
 

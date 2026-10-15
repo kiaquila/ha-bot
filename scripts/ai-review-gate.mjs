@@ -24,7 +24,7 @@ const maxWaitMs = Number(process.env.AI_REVIEW_WAIT_MS || 30000);
 const initialPollMs = Number(process.env.AI_REVIEW_POLL_MS || 5000);
 const maxPollMs = Number(process.env.AI_REVIEW_MAX_POLL_MS || 10000);
 const debounceMs = Number(process.env.AI_REVIEW_DEBOUNCE_MS || 5000);
-const config = readConfig(blueprintRoot);
+const config = readConfig(process.env.AI_REVIEW_POLICY_ROOT || blueprintRoot);
 
 if (!token || !repository || !prNumber || !headSha) {
   console.error("GITHUB_TOKEN, GITHUB_REPOSITORY, AI_REVIEW_PR_NUMBER, and AI_REVIEW_HEAD_SHA are required.");
@@ -184,6 +184,7 @@ async function fetchEvidence() {
       isTrustedReviewLogin(review.user?.login, "codex", config)
     ).map((review) => Date.parse(review.submitted_at || "")).filter(Number.isFinite));
     if (eligibleNativeResult === "pass" && latestReviewAt > latestCommentAt) return "pass";
+    if (commentResult === "resolved_findings") return eligibleNativeResult === "pass" ? "pass" : "pending";
     if (!commentResult) return eligibleNativeResult || "pending";
     if (commentResult !== "pass") return commentResult;
 

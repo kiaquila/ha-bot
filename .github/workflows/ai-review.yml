@@ -9,14 +9,17 @@ on:
         description: Pull request number to validate
         required: true
       trigger_mode:
-        description: Review trigger mode; use skip unless a backend explicitly supports automation
+        description: Must be skip; a trusted human requests native review separately
         required: false
         default: skip
+      reviewed_gate_sha:
+        description: Explicit read-only validation of reviewed gate code at this exact PR head
+        required: false
 
 permissions:
   contents: read
-  pull-requests: write
-  issues: write
+  pull-requests: read
+  issues: read
 
 concurrency:
   group: ai-review-${{ github.event.pull_request.number || inputs.pr_number || github.ref }}
@@ -47,14 +50,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [ -f .gate-trusted/scripts/resolve-pr-context.mjs ] && [ -f .gate-trusted/scripts/ai-review-gate.mjs ]; then
-            echo "script_dir=.gate-trusted/scripts" >> "$GITHUB_OUTPUT"
-            echo "first_install=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "::warning::Trusted AI review scripts missing on default branch; using PR scripts for first-install bootstrap only."
-            echo "script_dir=scripts" >> "$GITHUB_OUTPUT"
-            echo "first_install=true" >> "$GITHUB_OUTPUT"
-          fi
+          test -f .gate-trusted/scripts/resolve-pr-context.mjs
+          test -f .gate-trusted/scripts/ai-review-gate.mjs
+          echo "script_dir=.gate-trusted/scripts" >> "$GITHUB_OUTPUT"
 
       - name: Resolve PR context
         id: pr
@@ -87,31 +85,48 @@ jobs:
             trigger_mode="skip"
           fi
           case "$trigger_mode" in
-            skip|comment) ;;
+            skip) ;;
             *)
-              echo "::error::Unsupported AI_REVIEW_TRIGGER_MODE value: '$trigger_mode'. Allowed: skip, comment."
+              echo "::error::Unsupported AI_REVIEW_TRIGGER_MODE value: '$trigger_mode'. Allowed: skip."
               exit 1
               ;;
           esac
           echo "selected_agent=$selected" >> "$GITHUB_OUTPUT"
           echo "trigger_mode=$trigger_mode" >> "$GITHUB_OUTPUT"
 
+      - name: Select reviewed gate runtime
+        id: runtime
+        shell: bash
+        env:
+          REVIEWED_GATE_SHA: ${{ inputs.reviewed_gate_sha }}
+          CURRENT_HEAD_SHA: ${{ steps.pr.outputs.head_sha }}
+          EVENT_NAME: ${{ github.event_name }}
+          SELECTED_AGENT: ${{ steps.policy.outputs.selected_agent }}
+        run: |
+          set -euo pipefail
+          script_dir=".gate-trusted/scripts"
+          if [ -n "${REVIEWED_GATE_SHA}" ]; then
+            test "${EVENT_NAME}" = "workflow_dispatch"
+            test "${SELECTED_AGENT}" = "codex"
+            [[ "${REVIEWED_GATE_SHA}" =~ ^[a-f0-9]{40}$ ]]
+            test "${REVIEWED_GATE_SHA}" = "${GITHUB_SHA}"
+            test "${REVIEWED_GATE_SHA}" = "${CURRENT_HEAD_SHA}"
+            test "${REVIEWED_GATE_SHA}" = "$(git rev-parse HEAD)"
+            git diff --quiet HEAD -- scripts .unicorn-hub/config.json
+            script_dir="scripts"
+          fi
+          echo "script_dir=$script_dir" >> "$GITHUB_OUTPUT"
+
       - name: Route and validate selected native review
-        if: steps.gate.outputs.first_install != 'true'
-        run: node "${{ steps.gate.outputs.script_dir }}/ai-review-gate.mjs"
+        run: node "${{ steps.runtime.outputs.script_dir }}/ai-review-gate.mjs"
         env:
           GITHUB_TOKEN: ${{ github.token }}
           AI_REVIEW_AGENT: ${{ steps.policy.outputs.selected_agent }}
           AI_REVIEW_PR_NUMBER: ${{ steps.pr.outputs.pr_number }}
           AI_REVIEW_HEAD_SHA: ${{ steps.pr.outputs.head_sha }}
-          AI_REVIEW_TRIGGER_MODE: ${{ steps.policy.outputs.trigger_mode }}
+          AI_REVIEW_TRIGGER_MODE: skip
+          AI_REVIEW_POLICY_ROOT: .gate-trusted
           AI_REVIEW_WAIT_MS: "30000"
           AI_REVIEW_POLL_MS: "5000"
           AI_REVIEW_MAX_POLL_MS: "10000"
           AI_REVIEW_DEBOUNCE_MS: "5000"
-
-      - name: First-install AI review bootstrap
-        if: steps.gate.outputs.first_install == 'true'
-        run: |
-          echo "AI Review gate passed in first-install bootstrap mode."
-          echo "Default branch does not have trusted AI review scripts yet; future PRs will use trusted scripts and current-head review markers."

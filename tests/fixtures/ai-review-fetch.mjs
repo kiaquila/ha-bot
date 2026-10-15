@@ -11,7 +11,7 @@ globalThis.fetch = async (url) => {
     { id: 2, user: f.spoof ? { login: 'spoof[bot]' } : bot, created_at: f.edited ? '2026-10-14T00:00:00Z' : end, updated_at: end, body: f.noSha ? "Codex Review: Didn't find any major issues." : f.body ?? f.receipt }
   ];
   else if (url.includes('/pulls/1/reviews')) data = f.formal || f.previousFailure || f.missingFormalSha ? [{ id: 10, user: bot, commit_id: f.missingFormalSha ? undefined : f.sha, submitted_at: f.previousFailure ? '2026-10-14T00:00:00Z' : '2026-10-15T10:02:00Z', state: f.previousFailure ? 'CHANGES_REQUESTED' : 'COMMENTED' }] : [];
-  else if (url.includes('/pulls/1/comments')) data = [];
+  else if (url.includes('/pulls/1/comments')) data = f.advisory ? [{ pull_request_review_id: 10, user: bot, body: '[P3] advisory' }] : [];
   else if (url.includes('/issues/1/timeline')) data = f.timelineRace ? [{ event: 'committed', created_at: '2026-10-15T10:00:30Z' }] : [];
   else if (url.endsWith('/graphql')) data = f.graphqlError ? { errors: [{ message: 'fixture' }] } : { data: { repository: { pullRequest: { reviewThreads: { pageInfo: { hasNextPage: false }, nodes: f.unresolved || f.unresolvedGraphqlBot ? [{ isResolved: false, comments: { nodes: [{ author: f.unresolvedGraphqlBot ? { login: "chatgpt-codex-connector", __typename: "Bot" } : bot, body: '[P3] unresolved' }] } }] : [] } } } } };
   else throw new Error(`Unexpected fixture endpoint: ${url}`);

@@ -29,6 +29,7 @@ jobs:
         (
           startsWith(github.event.comment.body, 'Codex Review:') ||
           contains(github.event.comment.body, '<!-- codex-review-receipt:') ||
+          contains(github.event.comment.body, '<!-- codex-review-state:') ||
           contains(github.event.comment.body, '<!-- codex-pull-request-review-summary') ||
           contains(github.event.comment.body, 'AI_REVIEW_OUTCOME:')
         )

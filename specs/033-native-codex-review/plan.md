@@ -19,13 +19,19 @@ branch. Policy configuration is loaded beside those scripts, so PR configuration
 cannot expand the trusted reviewer set. No PR script is promoted into the
 privileged execution path.
 
-The existing default-branch gate accepts genuine current-head native formal
-reviews and legacy summaries. Initial rollout must use that existing evidence
-path and rerun the actual workflow after review. A new-format-only response
-cannot satisfy the old gate. If the reviewer cannot provide a supported genuine
-response, retain the PR and report that bootstrap blocker; do not forge evidence,
-change required checks, bypass protection, or run unreviewed PR gate code with
-write credentials.
+The workflow provides an explicit `workflow_dispatch` input, `reviewed_gate_sha`,
+for initial validation of already reviewed gate code. That path has read-only
+contents, issues, and pull-request permissions, uses policy configuration from
+main, forbids automatic review triggers, and requires the input SHA to match the
+workflow SHA, checkout SHA, and live PR head. It executes the complete gate and
+must find genuine native evidence for that exact head; no bootstrap success or
+skip replaces review. Ordinary PR events always use default-branch gate scripts.
+
+Before invoking this path, the operator verifies native review and resolved
+threads for the pinned full SHA. Recheck all applicable required pipelines after
+manual validation and use normal protected merge. A moved head requires a fresh
+review and explicit new input. No branch protection or trusted identity changes
+are needed.
 
 ## Verification
 
@@ -33,6 +39,6 @@ Original reproduction: identical body accepted=true without the receipt prefix,
 accepted=false with the receipt prefix. Regression coverage executes the gate
 CLI with an intercepted GitHub API, and evaluates the actual workflow condition.
 
-Local verification passed: `pnpm run preflight` (58 Python tests and 10 Node
+Local verification passed: `pnpm run preflight` (58 Python tests and 11 Node
 regression groups), plus `git diff --check`. Full observed receipt and summary
 fixtures are in `tests/fixtures/native-codex-review.json`, with public sources.

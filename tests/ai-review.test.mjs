@@ -34,6 +34,7 @@ test('structured summary requires exact schema, full SHA, explicit verdict, comp
   for (const code of [{ commit_sha: sha.slice(0, 10) }, { commit_sha: 'a'.repeat(40) }, { commit_sha: null }, { status: 'in_progress' }, { status: 'failed' }, { status: null }, { has_any_findings: 'false' }, { has_any_findings: null }, { has_any_findings: true }, { has_unresolved_findings: true }, { extra: false }]) assert.equal(accepts(comment(summary(code)), sha, marker), false, JSON.stringify(code));
   for (const body of [summary().replace('"has_any_findings":false', '"has_any_findings":true,"has_any_findings":false'), summary().replace('"code_review":', '"other":'), summary().replace('"completed"', 'completed'), summary() + '\n<!-- codex-review-state:v1 {} -->', summary().replace('**Completed**', '**Running**'), summary().replace('`2667f79`', '`aaaaaaa`'), summary() + '\n[P1] Defect', summary() + '\nFound unresolved issues.', summary().replace('**Completed** |', '**Completed** Failed |'), summary() + '\n<!-- codex-review-receipt:v1 -->']) assert.equal(accepts(comment(body), sha, marker), false, body);
   assert.equal(accepts(comment(summary({}, { has_any_findings: 'false' })), sha, marker), false);
+  assert.equal(accepts(comment(summary({}, { commit_sha: [sha], has_any_findings: false, has_unresolved_findings: false, status: 'completed' })), sha, marker), false);
 });
 test('edited summary uses updated_at; newer negative/unfinished result overrides previous clean receipt', () => {
   const old = comment(receipt, { created_at: before });
@@ -41,7 +42,7 @@ test('edited summary uses updated_at; newer negative/unfinished result overrides
   assert.equal(latestCodexCommentResult([old, edited], sha, marker), 'pass');
   assert.equal(latestCodexCommentResult([old, comment(receipt.replace('receipt:v1', 'receipt:v2'))], sha, marker), 'pending');
   assert.equal(latestCodexCommentResult([old, { ...edited, body: summary({ status: 'in_progress' }) }], sha, marker), 'pending');
-  assert.equal(latestCodexCommentResult([old, { ...edited, body: summary({ has_any_findings: true }) }], sha, marker), 'fail');
+  assert.equal(latestCodexCommentResult([old, { ...edited, body: summary({ has_any_findings: true, has_unresolved_findings: true }) }], sha, marker), 'fail');
   assert.equal(latestCodexCommentResult([comment(receipt), { ...edited, body: summary({ status: 'in_progress' }) }], sha, marker), 'pending');
 });
 test('formal reviews preserve P0-P2 severity and require exact commit_id', () => {
@@ -56,7 +57,7 @@ const filter = workflow.match(/    if: \|\n([\s\S]*?)    runs-on:/)[1];
 const workflowRoutes = (event, name = 'issue_comment') => new Function('github', 'startsWith', 'contains', `return (${filter});`)({ event_name: name, event }, (s, p) => s?.startsWith(p), (s, p) => s?.includes(p));
 test('actual workflow filter and runtime router handle created/edited signals', () => {
   assert.match(workflow, /types: \[created, edited\]/); assert.match(workflow, /cancel-in-progress: false/);
-  for (const action of ['created', 'edited']) for (const body of [legacy, receipt, summary(), receipt.replace('receipt:v1', 'receipt:v2')]) {
+  for (const action of ['created', 'edited']) for (const body of [legacy, receipt, summary(), receipt.replace('receipt:v1', 'receipt:v2'), '<!-- codex-review-state:v2 {} -->']) {
     const event = { action, issue: { number: 1, pull_request: {} }, comment: comment(body) };
     assert.equal(workflowRoutes(event), true); assert.equal(routes(event), true);
     assert.equal(routes({ ...event, comment: comment(body, { user: { login: 'spoof[bot]', type: 'Bot' } }) }), false);
@@ -95,8 +96,39 @@ function gate(fixture = {}) {
   });
 }
 test('actual gate CLI accepts receipt, legacy, edited summary and formal review', () => {
-  for (const fixture of [{}, { body: legacy }, { body: summary(), edited: true }, { formal: true }, { noSha: true }]) { const result = gate(fixture); assert.equal(result.status, 0, result.stderr + result.stdout); }
+  for (const fixture of [{}, { body: legacy }, { body: summary(), edited: true }, { formal: true }, { formal: true, advisory: true, body: summary({ has_any_findings: true }) }, { noSha: true }]) { const result = gate(fixture); assert.equal(result.status, 0, result.stderr + result.stdout); }
 });
 test('actual gate blocks stale/missing SHA, findings before new request, unresolved P3 and races', () => {
-  for (const fixture of [{ body: receipt.replace('2667f79cd7', 'aaaaaaaaaa') }, { noMarker: true }, { body: receipt.split('\n\n**')[0] }, { unresolved: true }, { unresolvedGraphqlBot: true }, { previousFailure: true }, { headRace: true }, { timelineRace: true }, { body: summary({ status: 'in_progress' }) }, { body: summary({ has_any_findings: true }) }, { spoof: true }, { graphqlError: true }, { missingFormalSha: true, body: 'Completed' }]) { const result = gate(fixture); assert.equal(result.status, 1, JSON.stringify(fixture) + result.stdout); }
+  for (const fixture of [{ body: receipt.replace('2667f79cd7', 'aaaaaaaaaa') }, { noMarker: true }, { body: receipt.split('\n\n**')[0] }, { unresolved: true }, { unresolvedGraphqlBot: true }, { previousFailure: true }, { headRace: true }, { timelineRace: true }, { body: summary({ status: 'in_progress' }) }, { body: summary({ has_any_findings: true }) }, { body: summary({}, { commit_sha: sha, has_any_findings: true, has_unresolved_findings: true, status: 'completed' }) }, { spoof: true }, { graphqlError: true }, { missingFormalSha: true, body: 'Completed' }]) { const result = gate(fixture); assert.equal(result.status, 1, JSON.stringify(fixture) + result.stdout); }
+});
+
+test('actual manual runtime selection pins dispatch, checkout and PR head; ordinary events use main', async () => {
+  const { mkdtempSync, rmSync, writeFileSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const yaml = readFileSync(new URL('../.github/workflows/ai-review.yml', import.meta.url), 'utf8');
+  assert.match(yaml, /permissions:\n  contents: read\n  pull-requests: read\n  issues: read/);
+  assert.doesNotMatch(yaml, /first_install|skip\|comment/);
+  const block = yaml.match(/- name: Select reviewed gate runtime[\s\S]*?        run: \|\n([\s\S]*?)\n      - name:/)[1].replace(/^          /gm, '');
+  const dir = mkdtempSync(join(tmpdir(), 'ha-bot-review-selection-'));
+  try {
+    writeFileSync(join(dir, 'git'), '#!/bin/sh\nif [ "$1" = rev-parse ]; then echo "$FIXTURE_CHECKOUT_SHA"; else exit "$FIXTURE_DIRTY"; fi\n', { mode: 0o700 });
+    for (const [extra, expected] of [
+      [{}, 0], [{ REVIEWED_GATE_SHA: '' }, 0], [{ EVENT_NAME: 'pull_request' }, 1],
+      [{ CURRENT_HEAD_SHA: 'a'.repeat(40) }, 1], [{ GITHUB_SHA: 'a'.repeat(40) }, 1],
+      [{ FIXTURE_CHECKOUT_SHA: 'a'.repeat(40) }, 1], [{ FIXTURE_DIRTY: '1' }, 1],
+      [{ REVIEWED_GATE_SHA: sha.slice(0, 10) }, 1], [{ SELECTED_AGENT: 'claude' }, 1]
+    ]) {
+      const output = join(dir, 'output');
+      writeFileSync(output, '');
+      const result = spawnSync('bash', ['-c', block], { encoding: 'utf8', env: { ...process.env,
+        PATH: `${dir}:${process.env.PATH}`, FIXTURE_CHECKOUT_SHA: sha, FIXTURE_DIRTY: '0',
+        REVIEWED_GATE_SHA: sha, CURRENT_HEAD_SHA: sha, GITHUB_SHA: sha,
+        EVENT_NAME: 'workflow_dispatch', SELECTED_AGENT: 'codex', GITHUB_OUTPUT: output, ...extra
+      } });
+      assert.equal(result.status, expected, JSON.stringify(extra) + result.stderr);
+      if (expected === 0) assert.equal(readFileSync(output, 'utf8').trim(),
+        extra.REVIEWED_GATE_SHA === '' ? 'script_dir=.gate-trusted/scripts' : 'script_dir=scripts');
+    }
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 });

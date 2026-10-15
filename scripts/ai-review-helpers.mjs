@@ -159,14 +159,14 @@ function parseStructuredCodexSummary(body, headSha) {
     if (!exactlyKeys(value, ["commit_sha", "has_any_findings", "has_unresolved_findings", "status"])) return null;
     if (value.commit_sha === null && value.status === null &&
         value.has_any_findings === null && value.has_unresolved_findings === null) continue;
-    if (!/^[a-f0-9]{40}$/.test(value.commit_sha || "") ||
+    if (typeof value.commit_sha !== "string" || !/^[a-f0-9]{40}$/.test(value.commit_sha) ||
         typeof value.has_any_findings !== "boolean" || typeof value.has_unresolved_findings !== "boolean" ||
         !["completed", "in_progress", "queued", "pending", "failed", "cancelled"].includes(value.status) ||
         (!value.has_any_findings && value.has_unresolved_findings)) return null;
   }
   const code = state.code_review;
   if (code.commit_sha !== headSha) return null;
-  if (code.has_any_findings || code.has_unresolved_findings || containsBlockingSeverity(body, "codex")) return "fail";
+  if (Object.values(state).some((value) => value.has_unresolved_findings) || containsBlockingSeverity(body, "codex")) return "fail";
   if (code.status !== "completed") return "pending";
   // Visible code-review rows must agree with the machine-readable state.
   const rows = body.split("\n").filter((line) => line.startsWith("|") && line.includes("**Code Review**"));
@@ -179,7 +179,7 @@ function parseStructuredCodexSummary(body, headSha) {
   if (visible.split("\n").some((line) => line.trim() &&
       line.trim() !== "This comment shows the latest Codex review activity on this pull request." &&
       !line.startsWith("|"))) return null;
-  return "pass";
+  return code.has_any_findings ? "resolved_findings" : "pass";
 }
 
 export function codexCommentTime(comment) {
@@ -224,7 +224,8 @@ export function latestCodexCommentResult(comments, headSha, requestMarker, confi
   const latestTime = codexCommentTime(candidates[0]);
   const results = candidates.filter((comment) => codexCommentTime(comment) === latestTime)
     .map((comment) => classifyCodexSummaryComment(comment, headSha, requestMarker, config) || "pending");
-  return results.includes("fail") ? "fail" : results.includes("pending") ? "pending" : "pass";
+  return results.includes("fail") ? "fail" : results.includes("pending") ? "pending" :
+    results.includes("resolved_findings") ? "resolved_findings" : "pass";
 }
 
 export function hasHeadUpdateBetweenTimestamps(timeline = [], startCreatedAt, endCreatedAt) {
