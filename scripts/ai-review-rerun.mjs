@@ -29,11 +29,13 @@ export function shouldRouteAiReviewRerunEvent(event, selectedAgent = "codex", co
   const login = event.comment.user?.login;
 
   if (agent === "codex") {
-    return isCodexReviewSignal(body) && isTrustedReviewLogin(login, "codex", config);
+    const previous = event.action === "edited" ? event.changes?.body?.from : null;
+    return (isCodexReviewSignal(body) || isCodexReviewSignal(previous)) && isTrustedReviewLogin(login, "codex", config);
   }
 
   if (agent === "claude") {
-    return Boolean(extractClaudeOutcome(body)) && isTrustedReviewLogin(login, "claude", config);
+    const previous = event.action === "edited" ? event.changes?.body?.from : null;
+    return Boolean(extractClaudeOutcome(body) || extractClaudeOutcome(previous)) && isTrustedReviewLogin(login, "claude", config);
   }
 
   return false;

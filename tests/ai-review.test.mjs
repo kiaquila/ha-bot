@@ -237,3 +237,15 @@ test('pre-merge rollout watcher requeues real PR gates on edited evidence and th
   await assert.rejects(watch({ missingRun: true }), /could not invalidate/);
   await assert.rejects(watch({ apiError: true }), /GitHub unavailable/);
 });
+
+test('marker-removing edits route from the old body and cannot hide behind previous success', () => {
+  for (const from of [receipt, summary(), '<!-- codex-review-state:v2 {} -->']) {
+    const event = { action: 'edited', issue: { pull_request: {} }, comment: comment(''), changes: { body: { from } } };
+    assert.equal(workflowRoutes(event), true); assert.equal(routes(event), true);
+    assert.equal(routes({ ...event, comment: comment('', { user: { login: 'spoof[bot]' } }) }), false);
+  }
+  assert.equal(latestCodexCommentResult([comment(receipt, { updated_at: before }), comment('')], sha, marker), 'pending');
+  const result = gate({ formal: true, formalSubmittedAt: '2026-10-15T10:00:30Z', body: '', edited: true });
+  assert.equal(result.status, 1, result.stdout + result.stderr);
+  assert.doesNotMatch(workflow, /first-install|script_dir=scripts/);
+});

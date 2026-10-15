@@ -178,7 +178,7 @@ async function fetchEvidence() {
     const eligibleNativeResult = latestCodexNativeReviewResult(reviewsAfterRequest, reviewComments, headSha, config);
     const commentResult = latestCodexCommentResult(comments, headSha, requestMarker, config);
     const latestCommentAt = Math.max(...comments.filter((comment) =>
-      isTrustedReviewLogin(comment.user?.login, "codex", config) && isCodexReviewSignal(comment.body)
+      isTrustedReviewLogin(comment.user?.login, "codex", config)
     ).map((comment) => Date.parse(codexCommentTime(comment) || "")).filter(Number.isFinite));
     const latestReviewAt = Math.max(...reviewsAfterRequest.filter((review) => review.commit_id === headSha &&
       isTrustedReviewLogin(review.user?.login, "codex", config)

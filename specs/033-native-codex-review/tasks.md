@@ -7,7 +7,7 @@
 - [x] Wire unresolved findings and head-race validation into the required gate.
 - [x] Fix workflow routing and bounded rerun after active-gate completion.
 - [x] Connect substantive Node regressions to preflight and baseline CI.
-- [x] Full local preflight passed: 58 Python tests and 14 Node regression groups.
+- [x] Full local preflight passed: 58 Python tests and 15 Node regression groups.
 Final native review, required checks, thread resolution, and the 120-second
 readiness window must be confirmed in the PR immediately before merge.
 
@@ -74,3 +74,15 @@ changes while main still has the old issue-comment handler. API/head/timeout or
 watcher failure blocks merge and resets the required readiness window. Tests
 exercise changed summaries and thread state, unchanged snapshots, missing runs,
 head movement, and API failure without posting evidence or synthetic checks.
+
+The next native review found marker-removing edits. Both workflow and runtime
+routing now inspect the previous edited body, and latest-evidence selection
+keeps newer blank/unrecognized trusted content pending over older success.
+The actual gate regression verifies that a previous passing formal review cannot
+hide a later blank edit. The privileged rerun workflow also fails closed if its
+trusted default-branch script is absent; it cannot fall back to PR code.
+
+A separate native thread-reopening finding remains open pending authorization
+for a bounded durable poller. The initial broad recurring rerun proposal was
+rejected by automatic approval review for shared-service scope/resource impact;
+no scheduled workflow has been added or activated.

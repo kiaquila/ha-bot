@@ -218,7 +218,7 @@ export function isAcceptableCodexSummaryComment(comment, headSha, requestMarker 
 export function latestCodexCommentResult(comments, headSha, requestMarker, config = {}) {
   const requestedAt = Date.parse(requestMarker?.sourceCommentCreatedAt || requestMarker?.requestedAt || "");
   const candidates = comments.filter((comment) =>
-    isTrustedReviewLogin(comment?.user?.login, "codex", config) && isCodexReviewSignal(comment?.body) &&
+    isTrustedReviewLogin(comment?.user?.login, "codex", config) &&
     Date.parse(codexCommentTime(comment) || "") >= requestedAt
   ).sort((a, b) => Date.parse(codexCommentTime(b)) - Date.parse(codexCommentTime(a)) || Number(b.id) - Number(a.id));
   if (!candidates.length) return null;

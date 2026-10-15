@@ -38,7 +38,9 @@ collection, so a push during validation cannot turn a stale run green.
 
 ## Event handling and initial rollout
 
-Created and edited native comments wake the rerun router. Events are serialized
+Created and edited native comments wake the rerun router. An edit that removes
+the marker still routes from the previous body. Newer trusted comments with
+unrecognized/blank content remain pending instead of exposing an older success. Events are serialized
 per PR. The latest eligible pull-request gate takes priority over diagnostic
 manual runs. The router waits with bounded backoff for an active gate to finish,
 then reevaluates evidence once if the latest run did not already evaluate it. It
