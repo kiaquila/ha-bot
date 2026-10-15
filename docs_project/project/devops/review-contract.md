@@ -51,8 +51,10 @@ rollout of a reviewed gate-format fix, a repository writer can add the PR label
 write permission, requires the label SHA to match the event head, checkout, and
 live PR head, and runs the reviewed gate code with default-branch reviewer policy
 and read-only permissions. The operator must first confirm genuine native review
-and resolved threads for that exact SHA. Retained labels do not enable this path
-on later pushes; a moved head needs a new SHA label and review.
+and resolved threads for that exact SHA. Every later event for the same labeled
+head uses that reviewed runtime, including unrelated labels, reopen, and ready
+for review, so requeue cannot fall back to an older parser. A label cannot enable
+this path on a different head; a moved head needs a new SHA label and review.
 
 The workflow also supports explicit `workflow_dispatch` diagnostics on the PR
 head branch with `reviewed_gate_sha` equal to the full reviewed SHA. All manual

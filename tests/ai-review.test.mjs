@@ -134,7 +134,7 @@ test('actual manual runtime selection pins dispatch, checkout and PR head; ordin
       const result = spawnSync('bash', ['-c', block], { encoding: 'utf8', env: { ...process.env,
         PATH: `${dir}:${process.env.PATH}`, FIXTURE_CHECKOUT_SHA: sha, FIXTURE_DIRTY: '0',
         REVIEWED_GATE_SHA: sha, CURRENT_HEAD_SHA: sha, GITHUB_SHA: sha,
-        EVENT_ACTION: '', REVIEW_LABEL: '', EVENT_HEAD_SHA: sha,
+        EVENT_ACTION: '', REVIEW_LABEL: '', EVENT_HEAD_SHA: sha, PR_LABELS: '[]',
         EVENT_NAME: 'workflow_dispatch', SELECTED_AGENT: 'codex', GITHUB_OUTPUT: output, ...extra
       } });
       assert.equal(result.status, expected, JSON.stringify(extra) + result.stderr);
@@ -183,14 +183,17 @@ test('eligible labeled PR validation requires a writer and exact event, checkout
       [{ REVIEW_LABEL: 'gate:' + 'a'.repeat(40) }, 1], [{ EVENT_HEAD_SHA: 'a'.repeat(40) }, 1],
       [{ CURRENT_HEAD_SHA: 'a'.repeat(40) }, 1], [{ FIXTURE_CHECKOUT_SHA: 'a'.repeat(40) }, 1],
       [{ FIXTURE_DIRTY: '1' }, 1], [{ SELECTED_AGENT: 'claude' }, 1],
-      [{ EVENT_ACTION: 'synchronize', REVIEW_LABEL: 'gate:' + sha }, 0, '.gate-trusted/scripts'],
-      [{ REVIEW_LABEL: 'unrelated' }, 0, '.gate-trusted/scripts']
+      [{ EVENT_ACTION: 'synchronize', REVIEW_LABEL: 'gate:' + sha }, 0, 'scripts'],
+      [{ EVENT_ACTION: 'reopened' }, 0, 'scripts'], [{ EVENT_ACTION: 'ready_for_review' }, 0, 'scripts'],
+      [{ REVIEW_LABEL: 'unrelated' }, 0, 'scripts'],
+      [{ REVIEW_LABEL: 'unrelated', PR_LABELS: '[]' }, 0, '.gate-trusted/scripts'],
+      [{ EVENT_ACTION: 'synchronize', EVENT_HEAD_SHA: 'a'.repeat(40), CURRENT_HEAD_SHA: 'a'.repeat(40), FIXTURE_CHECKOUT_SHA: 'a'.repeat(40) }, 0, '.gate-trusted/scripts']
     ]) {
       const output = join(dir, 'output'); writeFileSync(output, '');
       const result = spawnSync('bash', ['-c', block], { encoding: 'utf8', env: { ...process.env,
         PATH: `${dir}:${process.env.PATH}`, FIXTURE_CHECKOUT_SHA: sha, FIXTURE_DIRTY: '0', FIXTURE_PERMISSION: 'admin',
         REVIEWED_GATE_SHA: '', CURRENT_HEAD_SHA: sha, GITHUB_SHA: 'b'.repeat(40), EVENT_HEAD_SHA: sha,
-        EVENT_NAME: 'pull_request', EVENT_ACTION: 'labeled', REVIEW_LABEL: 'gate:' + sha,
+        EVENT_NAME: 'pull_request', EVENT_ACTION: 'labeled', REVIEW_LABEL: 'gate:' + sha, PR_LABELS: JSON.stringify(['gate:' + sha]),
         GITHUB_REPOSITORY: 'example/repo', GITHUB_ACTOR: 'writer', SELECTED_AGENT: 'codex', GITHUB_OUTPUT: output, ...extra
       } });
       assert.equal(result.status, expected, JSON.stringify(extra) + result.stderr);

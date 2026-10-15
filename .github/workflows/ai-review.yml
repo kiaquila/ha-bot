@@ -102,6 +102,7 @@ jobs:
           EVENT_ACTION: ${{ github.event.action }}
           EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           REVIEW_LABEL: ${{ github.event.label.name }}
+          PR_LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
           GH_TOKEN: ${{ github.token }}
           CURRENT_HEAD_SHA: ${{ steps.pr.outputs.head_sha }}
           EVENT_NAME: ${{ github.event_name }}
@@ -113,20 +114,25 @@ jobs:
             test "${GITHUB_SHA}" = "${CURRENT_HEAD_SHA}"
           fi
           reviewed_sha="${REVIEWED_GATE_SHA}"
-          if [ "${EVENT_NAME}" = "pull_request" ] && [ "${EVENT_ACTION}" = "labeled" ] && [[ "${REVIEW_LABEL}" == gate:* ]]; then
-            [[ "${REVIEW_LABEL}" =~ ^gate:([a-f0-9]{40})$ ]]
-            reviewed_sha="${BASH_REMATCH[1]}"
-            test "${reviewed_sha}" = "${EVENT_HEAD_SHA}"
-            permission="$(gh api "repos/${GITHUB_REPOSITORY}/collaborators/${GITHUB_ACTOR}/permission" --jq .permission)"
-            case "$permission" in
-              admin|maintain|write) ;;
-              *) echo "::error::Reviewed gate validation requires a repository writer."; exit 1 ;;
-            esac
+          if [ "${EVENT_NAME}" = "pull_request" ]; then
+            test -z "${REVIEWED_GATE_SHA}"
+            if [ "${EVENT_ACTION}" = "labeled" ] && [[ "${REVIEW_LABEL}" == gate:* ]]; then
+              [[ "${REVIEW_LABEL}" =~ ^gate:([a-f0-9]{40})$ ]]
+              test "${BASH_REMATCH[1]}" = "${EVENT_HEAD_SHA}"
+            fi
+            reviewed_sha="$(node -e 'const labels = JSON.parse(process.env.PR_LABELS || "[]"); console.log(Array.isArray(labels) && labels.includes("gate:" + process.env.EVENT_HEAD_SHA) ? process.env.EVENT_HEAD_SHA : "")')"
+            if [ -n "${reviewed_sha}" ]; then
+              permission="$(gh api "repos/${GITHUB_REPOSITORY}/collaborators/${GITHUB_ACTOR}/permission" --jq .permission)"
+              case "$permission" in
+                admin|maintain|write) ;;
+                *) echo "::error::Reviewed gate validation requires a repository writer."; exit 1 ;;
+              esac
+            fi
           fi
           if [ -n "${reviewed_sha}" ]; then
             case "${EVENT_NAME}" in
               workflow_dispatch) test "${reviewed_sha}" = "${GITHUB_SHA}" ;;
-              pull_request) test "${EVENT_ACTION}" = "labeled" ;;
+              pull_request) test "${reviewed_sha}" = "${EVENT_HEAD_SHA}" ;;
               *) exit 1 ;;
             esac
             test "${SELECTED_AGENT}" = "codex"

@@ -58,3 +58,9 @@ workflow tests cover writer rejection, malformed/stale labels, mismatched heads,
 and retained labels on a later synchronize event.
 Unrelated label events execute the ordinary trusted gate rather than skipping
 a required job, because GitHub treats skipped required jobs as successful.
+
+The next native review identified a later unrelated PR event selecting main's
+older parser on the already labeled head. Runtime selection now honors the
+exact-head label on every same-head PR event, with writer permission checks;
+a retained label never applies to a different head. Workflow regressions cover
+unrelated labels, reopen, ready-for-review, synchronize, and a changed head.

@@ -24,8 +24,9 @@ to the PR after verifying genuine native review and resolved threads. This
 eligible labeled PR event checks the actor's write permission and requires the
 label SHA to equal the event head, checkout SHA, and live PR head. It runs the
 complete reviewed gate with read-only permissions and main's reviewer policy.
-Ordinary push/synchronize events continue to use main; retained labels cannot
-enable reviewed code on later heads. No bootstrap skip replaces native evidence.
+All PR events on that same labeled head continue to use the reviewed runtime,
+so rerun selection cannot choose a newer run with the old parser. Unlabeled
+heads use main; retained labels cannot enable reviewed code on different heads. No bootstrap skip replaces native evidence.
 
 The optional `workflow_dispatch` input `reviewed_gate_sha` supports read-only
 exact-head diagnostics, but GitHub rulesets do not evaluate workflow-dispatch
