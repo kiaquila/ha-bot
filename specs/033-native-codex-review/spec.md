@@ -24,6 +24,9 @@ regression tests, and the review contract. Runtime bot behavior is unchanged.
 - Rerun handles a completed gate and the completion race of an active gate,
   deduplicates already evaluated evidence, and checks the live PR head before POST.
 - The gate rejects a head change during evidence collection and stale workflow events.
+- Initial rollout uses an eligible PR event with explicit full-SHA opt-in by a
+  repository writer, read-only permissions, trusted policy, and the full native
+  evidence gate. A diagnostic dispatch cannot establish merge readiness.
 - Local preflight and required GitHub checks pass; native review covers the final head.
 
 ## Negative scenario

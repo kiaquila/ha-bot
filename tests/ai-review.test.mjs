@@ -73,6 +73,7 @@ test('newest current-head run wins over old failed runs', () => {
   assert.equal(selectAiReviewRun([run({ head_sha: 'a'.repeat(40) })], sha).action, 'not_found');
   assert.equal(selectAiReviewRun([run(), run({ id: 11, conclusion: 'success' })], sha).action, 'already_success');
   assert.equal(selectAiReviewRun([run({ event: 'workflow_dispatch', conclusion: 'success' }), run({ id: 11, created_at: after, conclusion: 'skipped' })], sha).action, 'already_success');
+  assert.equal(selectAiReviewRun([run({ id: 10, conclusion: 'success' }), run({ id: 11, created_at: after, event: 'workflow_dispatch' })], sha).run.id, 10);
 });
 async function requeue({ runs = [run()], move = false, evidenceUpdatedAt = after, waitMs = 5000 } = {}) {
   let time = 0, gets = 0, lists = 0, posts = 0;
@@ -133,6 +134,7 @@ test('actual manual runtime selection pins dispatch, checkout and PR head; ordin
       const result = spawnSync('bash', ['-c', block], { encoding: 'utf8', env: { ...process.env,
         PATH: `${dir}:${process.env.PATH}`, FIXTURE_CHECKOUT_SHA: sha, FIXTURE_DIRTY: '0',
         REVIEWED_GATE_SHA: sha, CURRENT_HEAD_SHA: sha, GITHUB_SHA: sha,
+        EVENT_ACTION: '', REVIEW_LABEL: '', EVENT_HEAD_SHA: sha,
         EVENT_NAME: 'workflow_dispatch', SELECTED_AGENT: 'codex', GITHUB_OUTPUT: output, ...extra
       } });
       assert.equal(result.status, expected, JSON.stringify(extra) + result.stderr);
@@ -151,4 +153,48 @@ test('equal-time formal reviews prefer failure independently of API order or ID'
   }
   assert.equal(latestCodexNativeReviewResult([positive, { ...negative, submitted_at: undefined }], [], sha), 'fail');
   assert.equal(latestCodexNativeReviewResult([{ ...positive, submitted_at: undefined }], [], sha), null);
+});
+
+
+test('eligible labeled PR validation requires a writer and exact event, checkout and live SHA', async () => {
+  const { mkdtempSync, rmSync, writeFileSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const yaml = readFileSync(new URL('../.github/workflows/ai-review.yml', import.meta.url), 'utf8');
+  assert.match(yaml, /types: \[opened, synchronize, reopened, ready_for_review, labeled\]/);
+  const condition = yaml.match(/    if: \|\n([\s\S]*?)    runs-on:/)[1];
+  const eligible = (action, label, draft = false) => new Function('github', 'startsWith', `return (${condition});`)(
+    { event_name: 'pull_request', event: { action, label: { name: label }, pull_request: { draft } } },
+    (s, p) => s?.toLowerCase().startsWith(p.toLowerCase()));
+  assert.equal(eligible('labeled', 'gate:' + sha), true);
+  // Unrelated labels must run the real trusted gate: a skipped required job would count as success.
+  assert.equal(eligible('labeled', 'unrelated'), true);
+  assert.equal(eligible('labeled', 'gate:' + sha, true), false);
+  assert.equal(eligible('synchronize', ''), true);
+  const block = yaml.match(/- name: Select reviewed gate runtime[\s\S]*?        run: \|\n([\s\S]*?)\n      - name:/)[1].replace(/^          /gm, '');
+  const dir = mkdtempSync(join(tmpdir(), 'ha-bot-labeled-gate-'));
+  try {
+    writeFileSync(join(dir, 'git'), '#!/bin/sh\nif [ "$1" = rev-parse ]; then echo "$FIXTURE_CHECKOUT_SHA"; else exit "$FIXTURE_DIRTY"; fi\n', { mode: 0o700 });
+    writeFileSync(join(dir, 'gh'), '#!/bin/sh\necho "$FIXTURE_PERMISSION"\n', { mode: 0o700 });
+    for (const [extra, expected, script] of [
+      [{}, 0, 'scripts'], [{ FIXTURE_PERMISSION: 'write' }, 0, 'scripts'],
+      [{ FIXTURE_PERMISSION: 'read' }, 1], [{ FIXTURE_PERMISSION: 'triage' }, 1],
+      [{ FIXTURE_PERMISSION: '' }, 1], [{ REVIEW_LABEL: 'gate:' + sha.slice(0, 10) }, 1],
+      [{ REVIEW_LABEL: 'gate:' + 'a'.repeat(40) }, 1], [{ EVENT_HEAD_SHA: 'a'.repeat(40) }, 1],
+      [{ CURRENT_HEAD_SHA: 'a'.repeat(40) }, 1], [{ FIXTURE_CHECKOUT_SHA: 'a'.repeat(40) }, 1],
+      [{ FIXTURE_DIRTY: '1' }, 1], [{ SELECTED_AGENT: 'claude' }, 1],
+      [{ EVENT_ACTION: 'synchronize', REVIEW_LABEL: 'gate:' + sha }, 0, '.gate-trusted/scripts'],
+      [{ REVIEW_LABEL: 'unrelated' }, 0, '.gate-trusted/scripts']
+    ]) {
+      const output = join(dir, 'output'); writeFileSync(output, '');
+      const result = spawnSync('bash', ['-c', block], { encoding: 'utf8', env: { ...process.env,
+        PATH: `${dir}:${process.env.PATH}`, FIXTURE_CHECKOUT_SHA: sha, FIXTURE_DIRTY: '0', FIXTURE_PERMISSION: 'admin',
+        REVIEWED_GATE_SHA: '', CURRENT_HEAD_SHA: sha, GITHUB_SHA: 'b'.repeat(40), EVENT_HEAD_SHA: sha,
+        EVENT_NAME: 'pull_request', EVENT_ACTION: 'labeled', REVIEW_LABEL: 'gate:' + sha,
+        GITHUB_REPOSITORY: 'example/repo', GITHUB_ACTOR: 'writer', SELECTED_AGENT: 'codex', GITHUB_OUTPUT: output, ...extra
+      } });
+      assert.equal(result.status, expected, JSON.stringify(extra) + result.stderr);
+      if (expected === 0) assert.equal(readFileSync(output, 'utf8').trim(), 'script_dir=' + script);
+    }
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 });

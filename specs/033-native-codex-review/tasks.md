@@ -7,7 +7,7 @@
 - [x] Wire unresolved findings and head-race validation into the required gate.
 - [x] Fix workflow routing and bounded rerun after active-gate completion.
 - [x] Connect substantive Node regressions to preflight and baseline CI.
-- [x] Full local preflight passed: 58 Python tests and 12 Node regression groups.
+- [x] Full local preflight passed: 58 Python tests and 13 Node regression groups.
 Final native review, required checks, thread resolution, and the 120-second
 readiness window must be confirmed in the PR immediately before merge.
 
@@ -48,3 +48,13 @@ current-head rerun query, including after a skipped draft PR job. All manual
 validations must publish on the exact PR head, including the ordinary trusted
 script path. Runtime/workflow coverage also includes whitespace-prefixed legacy
 summaries.
+
+A real exact-head read-only workflow-dispatch validation passed, but GitHub kept
+the PR blocked: rulesets exclude workflow-dispatch job checks. The rollout path
+now uses an explicit SHA label on an eligible PR event, with a current writer
+permission check and event/checkout/live-head pinning. Manual runs remain
+diagnostic and cannot shadow an eligible PR gate in rerun selection. Executable
+workflow tests cover writer rejection, malformed/stale labels, mismatched heads,
+and retained labels on a later synchronize event.
+Unrelated label events execute the ordinary trusted gate rather than skipping
+a required job, because GitHub treats skipped required jobs as successful.

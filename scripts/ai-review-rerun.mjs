@@ -40,10 +40,13 @@ export function shouldRouteAiReviewRerunEvent(event, selectedAgent = "codex", co
 }
 
 export function selectAiReviewRun(runs = [], headSha) {
-  const matchingRuns = runs
+  const candidates = runs
     .filter((run) => ["pull_request", "workflow_dispatch"].includes(run.event) && run.head_sha === headSha)
     .filter((run) => activeStatuses.has(run.status) ||
-      (run.status === "completed" && (rerunnableConclusions.has(run.conclusion) || run.conclusion === "success")))
+      (run.status === "completed" && (rerunnableConclusions.has(run.conclusion) || run.conclusion === "success")));
+  // Dispatch jobs are diagnostic: GitHub rulesets only evaluate eligible PR jobs.
+  const matchingRuns = (candidates.some((run) => run.event === "pull_request")
+    ? candidates.filter((run) => run.event === "pull_request") : candidates)
     .sort((left, right) => Date.parse(right.created_at || "") - Date.parse(left.created_at || "") || Number(right.id) - Number(left.id));
 
   const latest = matchingRuns[0];

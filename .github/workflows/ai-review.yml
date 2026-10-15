@@ -2,7 +2,7 @@ name: AI Review
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
+    types: [opened, synchronize, reopened, ready_for_review, labeled]
   workflow_dispatch:
     inputs:
       pr_number:
@@ -99,6 +99,10 @@ jobs:
         shell: bash
         env:
           REVIEWED_GATE_SHA: ${{ inputs.reviewed_gate_sha }}
+          EVENT_ACTION: ${{ github.event.action }}
+          EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          REVIEW_LABEL: ${{ github.event.label.name }}
+          GH_TOKEN: ${{ github.token }}
           CURRENT_HEAD_SHA: ${{ steps.pr.outputs.head_sha }}
           EVENT_NAME: ${{ github.event_name }}
           SELECTED_AGENT: ${{ steps.policy.outputs.selected_agent }}
@@ -108,13 +112,27 @@ jobs:
           if [ "${EVENT_NAME}" = "workflow_dispatch" ]; then
             test "${GITHUB_SHA}" = "${CURRENT_HEAD_SHA}"
           fi
-          if [ -n "${REVIEWED_GATE_SHA}" ]; then
-            test "${EVENT_NAME}" = "workflow_dispatch"
+          reviewed_sha="${REVIEWED_GATE_SHA}"
+          if [ "${EVENT_NAME}" = "pull_request" ] && [ "${EVENT_ACTION}" = "labeled" ] && [[ "${REVIEW_LABEL}" == gate:* ]]; then
+            [[ "${REVIEW_LABEL}" =~ ^gate:([a-f0-9]{40})$ ]]
+            reviewed_sha="${BASH_REMATCH[1]}"
+            test "${reviewed_sha}" = "${EVENT_HEAD_SHA}"
+            permission="$(gh api "repos/${GITHUB_REPOSITORY}/collaborators/${GITHUB_ACTOR}/permission" --jq .permission)"
+            case "$permission" in
+              admin|maintain|write) ;;
+              *) echo "::error::Reviewed gate validation requires a repository writer."; exit 1 ;;
+            esac
+          fi
+          if [ -n "${reviewed_sha}" ]; then
+            case "${EVENT_NAME}" in
+              workflow_dispatch) test "${reviewed_sha}" = "${GITHUB_SHA}" ;;
+              pull_request) test "${EVENT_ACTION}" = "labeled" ;;
+              *) exit 1 ;;
+            esac
             test "${SELECTED_AGENT}" = "codex"
-            [[ "${REVIEWED_GATE_SHA}" =~ ^[a-f0-9]{40}$ ]]
-            test "${REVIEWED_GATE_SHA}" = "${GITHUB_SHA}"
-            test "${REVIEWED_GATE_SHA}" = "${CURRENT_HEAD_SHA}"
-            test "${REVIEWED_GATE_SHA}" = "$(git rev-parse HEAD)"
+            [[ "${reviewed_sha}" =~ ^[a-f0-9]{40}$ ]]
+            test "${reviewed_sha}" = "${CURRENT_HEAD_SHA}"
+            test "${reviewed_sha}" = "$(git rev-parse HEAD)"
             git diff --quiet HEAD -- scripts .unicorn-hub/config.json
             script_dir="scripts"
           fi

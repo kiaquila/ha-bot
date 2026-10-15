@@ -19,19 +19,23 @@ branch. Policy configuration is loaded beside those scripts, so PR configuration
 cannot expand the trusted reviewer set. No PR script is promoted into the
 privileged execution path.
 
-The workflow provides an explicit `workflow_dispatch` input, `reviewed_gate_sha`,
-for initial validation of already reviewed gate code. That path has read-only
-contents, issues, and pull-request permissions, uses policy configuration from
-main, forbids automatic review triggers, and requires the input SHA to match the
-workflow SHA, checkout SHA, and live PR head. It executes the complete gate and
-must find genuine native evidence for that exact head; no bootstrap success or
-skip replaces review. Ordinary PR events always use default-branch gate scripts.
+For initial rollout, a repository writer adds `gate:<full-reviewed-head-sha>`
+to the PR after verifying genuine native review and resolved threads. This
+eligible labeled PR event checks the actor's write permission and requires the
+label SHA to equal the event head, checkout SHA, and live PR head. It runs the
+complete reviewed gate with read-only permissions and main's reviewer policy.
+Ordinary push/synchronize events continue to use main; retained labels cannot
+enable reviewed code on later heads. No bootstrap skip replaces native evidence.
 
-Before invoking this path, the operator verifies native review and resolved
-threads for the pinned full SHA. Recheck all applicable required pipelines after
-manual validation and use normal protected merge. A moved head requires a fresh
-review and explicit new input. No branch protection or trusted identity changes
-are needed.
+The optional `workflow_dispatch` input `reviewed_gate_sha` supports read-only
+exact-head diagnostics, but GitHub rulesets do not evaluate workflow-dispatch
+jobs as required PR checks. A real diagnostic run confirmed this restriction;
+only the eligible PR validation can establish merge readiness. Rerun selection
+therefore gives eligible PR runs priority over later diagnostic dispatches.
+
+Recheck all applicable required pipelines after labeled validation and use
+normal protected merge. A moved head requires fresh review and a new explicit
+SHA label. No branch protection or trusted identity changes are needed.
 
 ## Verification
 
@@ -39,6 +43,6 @@ Original reproduction: identical body accepted=true without the receipt prefix,
 accepted=false with the receipt prefix. Regression coverage executes the gate
 CLI with an intercepted GitHub API, and evaluates the actual workflow condition.
 
-Local verification passed: `pnpm run preflight` (58 Python tests and 12 Node
+Local verification passed: `pnpm run preflight` (58 Python tests and 13 Node
 regression groups), plus `git diff --check`. Full observed receipt and summary
 fixtures are in `tests/fixtures/native-codex-review.json`, with public sources.

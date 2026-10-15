@@ -39,22 +39,30 @@ collection, so a push during validation cannot turn a stale run green.
 ## Event handling and initial rollout
 
 Created and edited native comments wake the rerun router. Events are serialized
-per PR. Both pull-request and exact-head manual workflow runs are eligible.
-The router waits with bounded backoff for an active gate to finish, then
-reevaluates evidence once if the latest run did not already evaluate it. It never
-reruns an older failed run in preference to a newer successful one, and checks the
-live head immediately before requesting a rerun.
+per PR. The latest eligible pull-request gate takes priority over diagnostic
+manual runs. The router waits with bounded backoff for an active gate to finish,
+then reevaluates evidence once if the latest run did not already evaluate it. It
+never reruns an older failed PR run in preference to a newer successful PR run,
+and checks the live head immediately before requesting a rerun.
 
 Ordinary PR gates and event routers execute default-branch scripts. For initial
-rollout of a reviewed gate-format fix, a repository writer may explicitly dispatch
-AI Review on the reviewed branch with `reviewed_gate_sha` equal to its full SHA.
-Every manual validation must run on the PR head branch. The reviewed-code
-path also requires its explicit SHA to match the dispatch, checkout, and current PR
-head, uses the default-branch reviewer policy, grants only read permissions, and
-runs the full evidence gate. The operator must first confirm genuine native
-review and resolved threads for that exact SHA. A missing review, failed gate,
-or moved head blocks merge. Automatic triggers and first-install success skips
-are not supported by this validation workflow.
+rollout of a reviewed gate-format fix, a repository writer can add the PR label
+`gate:<full-reviewed-head-sha>`. The labeled PR event verifies the actor's current
+write permission, requires the label SHA to match the event head, checkout, and
+live PR head, and runs the reviewed gate code with default-branch reviewer policy
+and read-only permissions. The operator must first confirm genuine native review
+and resolved threads for that exact SHA. Retained labels do not enable this path
+on later pushes; a moved head needs a new SHA label and review.
+
+The workflow also supports explicit `workflow_dispatch` diagnostics on the PR
+head branch with `reviewed_gate_sha` equal to the full reviewed SHA. All manual
+runs must match the live PR head. GitHub does not evaluate workflow-dispatch jobs
+as required checks in a branch ruleset, so diagnostic success cannot establish
+merge readiness. See [GitHub's required-check troubleshooting](https://docs.github.com/en/pull-requests/how-tos/merge-and-close-pull-requests/troubleshooting-required-status-checks).
+
+Both reviewed-code paths execute the full evidence gate. A missing review,
+failed gate, or moved head blocks success. Automatic review requests and
+first-install success skips are not supported by this validation workflow.
 
 ## Claude
 
