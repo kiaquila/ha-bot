@@ -1,36 +1,114 @@
 # Review Contract
 
-Reviewers check the pull request against the active feature spec, not only
-against the implementation diff. Acceptance criteria, negative scenarios, and
-known issues are the source of truth for expected behavior.
+Reviewers check the pull request against the active feature spec. Acceptance
+criteria, negative scenarios, and known issues define expected behavior.
 
 ## Codex
 
-Native GitHub PR review. Blocking findings use `P0`, `P1`, or `P2`. Advisory
-findings use `P3`.
+Only configured trusted Codex identities provide evidence. A trusted human
+request records a marker for the current full head SHA. Default-branch scripts
+and configuration define the trust policy; PR configuration cannot add reviewers.
 
-Codex evidence must be tied to the latest PR head. Native reviews must have
-`commit_id` equal to the current head SHA and must be submitted after the
-trusted `AI_REVIEW_REQUEST_ID` marker for that head.
+Native positive formal reviews require an exact current-head `commit_id` and
+submission after the request. Every current-head negative or dismissed review
+blocks; a later approval cannot conceal an older review edited to add a finding. P0, P1, and P2 findings block merge. Every unresolved Codex
+thread also blocks merge, including P3 and outdated threads. New request markers
+do not erase current-head failures or unresolved findings.
 
-When Codex has no inline findings, a top-level `Codex Review:` summary comment
-from the trusted Codex bot also satisfies the gate only when it either names the
-current head SHA in its body or is posted after the trusted marker with no commit
-or force-push event between the source trigger comment and the summary.
+Supported top-level evidence:
+
+- Legacy `Codex Review:` clean verdicts with a matching reviewed commit. Legacy
+  summaries without a commit require the trusted request and an unchanged head
+  throughout the interval between request and response.
+- A single leading `codex-review-receipt:v1` HTML marker, the explicit clean
+  verdict, and one matching ten-character or full reviewed commit field.
+- A single `codex-pull-request-review-summary` marker and `codex-review-state:v1`
+  JSON state. The schema and field types must match the observed native format;
+  code review must be completed for the full current SHA with both findings flags
+  false and a consistent completed code-review table row. Duplicate JSON keys,
+  markers, malformed fields, or contradictory visible evidence are rejected.
+  A summary with resolved findings cannot pass alone; a matching acceptable native
+  formal review must establish their nonblocking severity. Security-review
+  unresolved flags also block the gate.
+
+Edited summaries use `updated_at`, even when `created_at` precedes the request.
+The latest trusted signal determines the outcome; an older positive result cannot
+hide a newer pending, invalid, or negative signal. Reactions and the word
+Completed alone never satisfy the gate. The head is checked again after evidence
+collection, so a push during validation cannot turn a stale run green.
+
+## Event handling and initial rollout
+
+Submitted, edited, and dismissed formal reviews wake the router. Edits and
+dismissals force conservative requeue because their original `submitted_at`
+cannot establish the mutation time. Inline review comments also route on
+creation, editing, and deletion; edited/deleted inline timestamps never suppress
+requeue. Created, edited, and deleted native comments also wake it. All trusted Codex top-level comments route, including unrecognized or blank
+new content; removing a marker cannot suppress requeue. Newer trusted comments with
+unrecognized/blank content remain pending instead of exposing an older success. Events are serialized
+per PR. The latest eligible pull-request gate takes priority over diagnostic
+manual runs. The router waits with bounded backoff for an active gate to finish,
+then reevaluates evidence once if the latest run did not already evaluate it. It
+never reruns an older failed PR run in preference to a newer successful PR run,
+and checks the live head immediately before requesting a rerun.
+
+A bounded default-branch poller checks thread state every five minutes because
+Actions has no thread resolution-toggle trigger. It reruns at most one real gate
+per invocation, only for an open non-draft PR whose latest current-head eligible
+PR gate is successful and has an unresolved trusted Codex thread. It rechecks
+that successful run and live head before POST. Failed or active gates and manual
+diagnostics are excluded. All scripts and policy come from main. GitHub can delay
+scheduled runs; the merge owner must still recheck current threads immediately
+before merge. Once red, the gate waits for ordinary evidence events or an
+operator rerun after resolution, avoiding repeated scheduled failures.
+
+Ordinary PR gates and event routers execute default-branch scripts. For initial
+rollout of a reviewed gate-format fix, a repository writer can add the PR label
+`gate:<full-reviewed-head-sha>`. The PR event finds the label's original actor in paginated issue events and
+verifies that actor's write permission, requires the label SHA to match the event head, checkout, and
+live PR head, and runs the reviewed gate code with default-branch reviewer policy
+and read-only permissions. The operator must first confirm genuine native review
+and resolved threads for that exact SHA. Every later event for the same labeled
+head uses that reviewed runtime, including unrelated labels, reopen, and ready
+for review, so requeue cannot fall back to an older parser. The later event actor
+does not need to be the writer who authorized the label. A label cannot enable
+this path on a different head; a moved head needs a new SHA label and review.
+
+The workflow also supports explicit `workflow_dispatch` diagnostics on the PR
+head branch with `reviewed_gate_sha` equal to the full reviewed SHA. All manual
+runs must match the live PR head. GitHub does not evaluate workflow-dispatch jobs
+as required checks in a branch ruleset, so diagnostic success cannot establish
+merge readiness. See [GitHub's required-check troubleshooting](https://docs.github.com/en/pull-requests/how-tos/merge-and-close-pull-requests/troubleshooting-required-status-checks).
+
+Before the initial labeled validation, the operator starts the already reviewed
+local supervisor with the authorized `gh` session:
+
+```sh
+node scripts/ai-review-rollout-watch.mjs owner/repo PR_NUMBER FULL_REVIEWED_SHA
+```
+
+This watcher remains supervised through merge. It polls current-head comments,
+formal reviews, inline findings, and resolved-thread state every five seconds,
+and requests a real current-head PR-gate rerun whenever that evidence changes.
+It supplies pre-merge routing because `issue_comment` workflows still use the old
+default branch until merge. It ignores github-actions-generated issue comments, preventing failure-comment
+feedback loops. The read-only gate reports failures through logs/job summary
+without posting issue comments. The watcher never posts review evidence or
+creates check results. A moved head, API error, missing rerunnable gate, timeout, or stopped
+watcher blocks the rollout: restore supervision and restart the full 120-second
+readiness window after real native evidence and required checks are green.
+
+Both reviewed-code paths execute the full evidence gate. A missing review,
+failed gate, or moved head blocks success. Automatic review requests and
+first-install success skips are not supported by this validation workflow.
 
 ## Claude
 
-Top-level comment must start with:
-
-```text
-AI_REVIEW_AGENT: claude
-AI_REVIEW_SHA: <head-sha>
-AI_REVIEW_OUTCOME: pass|advisory|block
-```
-
-Only `pass` satisfies the gate.
+A trusted top-level comment must include `AI_REVIEW_AGENT: claude`,
+`AI_REVIEW_SHA` equal to the full current head, and `AI_REVIEW_OUTCOME: pass`.
+Advisory and block outcomes do not pass.
 
 ## Gemini
 
-Native GitHub PR review from the configured app. Critical or high-severity
-findings block merge.
+Native GitHub PR review from the configured app must match the current head.
+Critical or high-severity findings block merge.

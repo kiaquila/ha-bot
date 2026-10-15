@@ -1,0 +1,32 @@
+name: AI Review Thread Refresh
+
+on:
+  schedule:
+    - cron: '2-57/5 * * * *'
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: ai-review-thread-refresh-${{ github.repository }}
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout default-branch scripts only
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - name: Requeue at most one stale successful Codex gate
+        run: node scripts/ai-review-thread-refresh.mjs
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          AI_REVIEW_AGENT: ${{ vars.AI_REVIEW_AGENT }}

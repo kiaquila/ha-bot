@@ -2,14 +2,20 @@ name: AI Review Rerun
 
 on:
   pull_request_review:
-    types: [submitted]
+    types: [submitted, edited, dismissed]
+  pull_request_review_comment:
+    types: [created, edited, deleted]
   issue_comment:
-    types: [created, edited]
+    types: [created, edited, deleted]
 
 permissions:
   actions: write
   contents: read
   pull-requests: read
+
+concurrency:
+  group: ai-review-rerun-${{ github.event.pull_request.number || github.event.issue.number }}
+  cancel-in-progress: false
 
 jobs:
   ai-review-rerun:
@@ -20,14 +26,15 @@ jobs:
         github.event.review.user.type == 'Bot'
       ) ||
       (
+        github.event_name == 'pull_request_review_comment' &&
+        github.event.comment.user.type == 'Bot'
+      ) ||
+      (
         github.event.issue.pull_request &&
-        github.event.comment.user.type == 'Bot' &&
-        (
-          startsWith(github.event.comment.body, 'Codex Review:') ||
-          contains(github.event.comment.body, 'AI_REVIEW_OUTCOME:')
-        )
+        github.event.comment.user.type == 'Bot'
       )
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - name: Checkout PR content
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -43,12 +50,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [ -f .gate-trusted/scripts/ai-review-rerun.mjs ]; then
-            echo "script_dir=.gate-trusted/scripts" >> "$GITHUB_OUTPUT"
-          else
-            echo "::warning::Trusted AI review rerun script missing on default branch; using PR script for first-install bootstrap only."
-            echo "script_dir=scripts" >> "$GITHUB_OUTPUT"
-          fi
+          test -f .gate-trusted/scripts/ai-review-rerun.mjs
+          echo "script_dir=.gate-trusted/scripts" >> "$GITHUB_OUTPUT"
 
       - name: Rerun AI Review for trusted evidence
         run: node "${{ steps.gate.outputs.script_dir }}/ai-review-rerun.mjs"

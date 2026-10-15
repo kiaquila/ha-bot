@@ -13,10 +13,11 @@
     "check:repo": "node scripts/check-repo-baseline.mjs",
     "check:python": "python3 -m py_compile bot.py healthcheck.py",
     "check:tests": "python3 -m unittest discover -s tests -p 'test_*.py' -v",
-    "preflight": "node scripts/check-feature-memory.mjs --worktree && pnpm run check:repo && pnpm run check:context -- --local-preflight && pnpm run check:context -- --worktree && pnpm run check:python && pnpm run check:tests",
+    "preflight": "node scripts/check-feature-memory.mjs --worktree && pnpm run check:repo && pnpm run check:context -- --local-preflight && pnpm run check:context -- --worktree && pnpm run check:python && pnpm run check:tests && pnpm run check:review",
     "agent:set": "node scripts/set-implementation-agent.mjs",
     "worktree:new": "node scripts/new-worktree.mjs",
     "review:switch": "node scripts/switch-review-agent.mjs",
-    "branch-protection:apply": "node scripts/apply-branch-protection.mjs"
+    "branch-protection:apply": "node scripts/apply-branch-protection.mjs",
+    "check:review": "node --test tests/ai-review*.test.mjs"
   }
 }
