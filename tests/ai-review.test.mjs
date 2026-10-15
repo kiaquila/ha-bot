@@ -32,7 +32,7 @@ test('receipt rejects wrong/missing/ambiguous SHA, spoofing, malformed markers a
 test('structured summary requires exact schema, full SHA, explicit verdict, completed state and matching row', () => {
   assert.equal(accepts(comment(summary()), sha, marker), true);
   for (const code of [{ commit_sha: sha.slice(0, 10) }, { commit_sha: 'a'.repeat(40) }, { commit_sha: null }, { status: 'in_progress' }, { status: 'failed' }, { status: null }, { has_any_findings: 'false' }, { has_any_findings: null }, { has_any_findings: true }, { has_unresolved_findings: true }, { extra: false }]) assert.equal(accepts(comment(summary(code)), sha, marker), false, JSON.stringify(code));
-  for (const body of [summary().replace('"has_any_findings":false', '"has_any_findings":true,"has_any_findings":false'), summary().replace('"code_review":', '"other":'), summary().replace('"completed"', 'completed'), summary() + '\n<!-- codex-review-state:v1 {} -->', summary().replace('**Completed**', '**Running**'), summary().replace('`2667f79`', '`aaaaaaa`'), summary() + '\n[P1] Defect', summary() + '\nFound unresolved issues.', summary().replace('**Completed** |', '**Completed** Failed |'), summary() + '\n<!-- codex-review-receipt:v1 -->']) assert.equal(accepts(comment(body), sha, marker), false, body);
+  for (const body of [summary().replace('"has_any_findings":false', '"has_any_findings":true,"has_any_findings":false'), summary().replace('"code_review":', '"other":'), summary().replace('"completed"', 'completed'), summary() + '\n<!-- codex-review-state:v1 {} -->', summary().replace('**Completed**', '**Running**'), summary().replace('`2667f79`', '`aaaaaaa`'), summary() + '\n[P1] Defect', summary() + '\n| Unexpected | Found major issues |', summary() + '\nFound unresolved issues.', summary().replace('**Completed** |', '**Completed** Failed |'), summary() + '\n<!-- codex-review-receipt:v1 -->']) assert.equal(accepts(comment(body), sha, marker), false, body);
   assert.equal(accepts(comment(summary({}, { has_any_findings: 'false' })), sha, marker), false);
   assert.equal(accepts(comment(summary({}, { commit_sha: [sha], has_any_findings: false, has_unresolved_findings: false, status: 'completed' })), sha, marker), false);
 });
@@ -71,6 +71,7 @@ const run = (extra = {}) => ({ id: 10, event: 'pull_request', head_sha: sha, cre
 test('newest current-head run wins over old failed runs', () => {
   assert.equal(selectAiReviewRun([run(), run({ id: 11, created_at: after, conclusion: 'success' })], sha).action, 'already_success');
   assert.equal(selectAiReviewRun([run({ head_sha: 'a'.repeat(40) })], sha).action, 'not_found');
+  assert.equal(selectAiReviewRun([run(), run({ id: 11, conclusion: 'success' })], sha).action, 'already_success');
 });
 async function requeue({ runs = [run()], move = false, evidenceUpdatedAt = after, waitMs = 5000 } = {}) {
   let time = 0, gets = 0, lists = 0, posts = 0;
@@ -86,7 +87,10 @@ async function requeue({ runs = [run()], move = false, evidenceUpdatedAt = after
 test('rerun covers active/completed gate, deduplication, updated successful gate and push race', async () => {
   assert.equal((await requeue()).posts, 1);
   const active = await requeue({ runs: [run({ status: 'in_progress' }), run()] }); assert.equal(active.posts, 1); assert.equal(active.lists, 2);
-  assert.equal((await requeue({ move: true })).posts, 0); assert.equal((await requeue({ evidenceUpdatedAt: before })).posts, 0);
+  assert.equal((await requeue({ move: true })).posts, 0); assert.equal((await requeue({ evidenceUpdatedAt: '2026-10-15T09:59:59Z' })).posts, 0);
+  assert.equal((await requeue({ evidenceUpdatedAt: before })).posts, 1);
+  assert.equal((await requeue({ evidenceUpdatedAt: before, runs: [run({ conclusion: 'success' })] })).posts, 1);
+  assert.equal((await requeue({ evidenceUpdatedAt: null, runs: [run({ conclusion: 'success' })] })).posts, 1);
   assert.equal((await requeue({ runs: [run({ conclusion: 'success' })] })).posts, 1);
   await assert.rejects(requeue({ runs: [run({ status: 'in_progress' })], waitMs: 100 }), /bounded rerun wait expired/);
 });

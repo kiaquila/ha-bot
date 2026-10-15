@@ -119,7 +119,7 @@ export function latestAiReviewRequestMarker(comments = [], agent, headSha) {
 export function containsBlockingSeverity(body, agent) {
   const text = String(body || "");
   if (agent === "codex") {
-    return /\bP[0-2]\b/.test(text);
+    return /\bP[0-2]\b/i.test(text);
   }
   if (agent === "gemini") {
     return /\b(critical|high)\b/i.test(text);
@@ -178,7 +178,9 @@ function parseStructuredCodexSummary(body, headSha) {
   const visible = body.slice(match[0].length).replace(/\s*<details>\s*<summary>[^<]*About Codex in GitHub<\/summary>[\s\S]*<\/details>\s*$/, "");
   if (visible.split("\n").some((line) => line.trim() &&
       line.trim() !== "This comment shows the latest Codex review activity on this pull request." &&
-      !line.startsWith("|"))) return null;
+      line.trim() !== "| Review | Status | Commit | Review trigger |" &&
+      line.trim() !== "| --- | --- | --- | --- |" &&
+      !rows.includes(line) && !/^\|[^|]*\*\*Security Review\*\*\s*\|/.test(line))) return null;
   return code.has_any_findings ? "resolved_findings" : "pass";
 }
 

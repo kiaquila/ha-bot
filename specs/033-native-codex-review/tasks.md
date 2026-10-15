@@ -35,3 +35,8 @@ The first native review identified a missing workflow condition for standalone
 `codex-review-state:` signals. Added the condition and covered it through the
 actual workflow expression and runtime router. Also covered resolved formal P3
 reviews alongside structured summaries so advisory severity remains compatible.
+
+The second native review found an equal-timestamp rerun race. Equality is now
+treated as changed evidence for both successful and failed runs. Strictly older
+evidence is deduplicated; missing timestamps also require conservative requeue.
+Regression cases cover equality, older evidence, and same-time run ordering.

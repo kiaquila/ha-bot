@@ -42,7 +42,7 @@ export function shouldRouteAiReviewRerunEvent(event, selectedAgent = "codex", co
 export function selectAiReviewRun(runs = [], headSha) {
   const matchingRuns = runs
     .filter((run) => run.event === "pull_request" && run.head_sha === headSha)
-    .sort((left, right) => Date.parse(right.created_at || "") - Date.parse(left.created_at || ""));
+    .sort((left, right) => Date.parse(right.created_at || "") - Date.parse(left.created_at || "") || Number(right.id) - Number(left.id));
 
   const latest = matchingRuns[0];
   if (!latest) return { action: "not_found", run: null };
@@ -115,10 +115,10 @@ export async function rerunAiReviewForPrHead({
     }
     const evidenceTime = Date.parse(evidenceUpdatedAt || "");
     const runStarted = Date.parse(selected.run?.run_started_at || selected.run?.created_at || "");
-    if (Number.isFinite(evidenceTime) && Number.isFinite(runStarted) && evidenceTime <= runStarted) {
+    if (Number.isFinite(evidenceTime) && Number.isFinite(runStarted) && evidenceTime < runStarted) {
       return { action: "already_evaluated", message: `AI Review already evaluated this evidence for ${headSha}.` };
     }
-    const changedEvidence = Number.isFinite(evidenceTime) && evidenceTime > runStarted;
+    const changedEvidence = !Number.isFinite(evidenceTime) || !Number.isFinite(runStarted) || evidenceTime >= runStarted;
     if (selected.action === "rerun" || (selected.action === "already_success" && changedEvidence)) {
       // Check again immediately before POST so a new push cannot requeue the obsolete head.
       if (!await currentHead()) return { action: "stale", message: "PR head moved before rerun; rejected." };
