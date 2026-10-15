@@ -103,7 +103,8 @@ if (isReview) {
     const rerunResult = await rerunAiReviewForPrHead({
       token,
       repository,
-      headSha
+      headSha,
+      prNumber
     });
     console.log(rerunResult.message);
   } catch (error) {

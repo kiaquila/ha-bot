@@ -4,12 +4,15 @@ import {
   createAiReviewRequestMarkerBody,
   hasHeadUpdateBetweenTimestamps,
   isAcceptableClaudeComment,
-  isAcceptableCodexSummaryComment,
+  codexCommentTime,
+  isCodexReviewSignal,
+  isTrustedReviewLogin,
+  latestCodexCommentResult,
   isAcceptableNativeReview,
   latestAiReviewRequestMarker,
   latestCodexNativeReviewResult
 } from "./ai-review-helpers.mjs";
-import { readConfig } from "./shared.mjs";
+import { blueprintRoot, readConfig } from "./shared.mjs";
 
 const token = process.env.GITHUB_TOKEN;
 const repository = process.env.GITHUB_REPOSITORY;
@@ -21,7 +24,7 @@ const maxWaitMs = Number(process.env.AI_REVIEW_WAIT_MS || 30000);
 const initialPollMs = Number(process.env.AI_REVIEW_POLL_MS || 5000);
 const maxPollMs = Number(process.env.AI_REVIEW_MAX_POLL_MS || 10000);
 const debounceMs = Number(process.env.AI_REVIEW_DEBOUNCE_MS || 5000);
-const config = readConfig();
+const config = readConfig(blueprintRoot);
 
 if (!token || !repository || !prNumber || !headSha) {
   console.error("GITHUB_TOKEN, GITHUB_REPOSITORY, AI_REVIEW_PR_NUMBER, and AI_REVIEW_HEAD_SHA are required.");
@@ -141,22 +144,53 @@ async function fetchEvidence() {
   const reviews = await listPaginated(`/repos/${owner}/${repo}/pulls/${prNumber}/reviews`);
   if (selectedAgent === "codex") {
     const reviewComments = await listPaginated(`/repos/${owner}/${repo}/pulls/${prNumber}/comments`);
+    // A new request marker must never erase current-head failures or unresolved threads.
+    const nativeResult = latestCodexNativeReviewResult(reviews, reviewComments, headSha, config);
+    if (nativeResult === "fail") return "fail";
+    let cursor = null;
+    do {
+      const data = await request("/graphql", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          query: `query($owner:String!,$repo:String!,$number:Int!,$cursor:String) {
+            repository(owner:$owner,name:$repo) { pullRequest(number:$number) {
+              reviewThreads(first:100,after:$cursor) {
+                pageInfo { hasNextPage endCursor }
+                nodes { isResolved comments(first:1) { nodes { author { login __typename } } } }
+              }
+            } }
+          }`,
+          variables: { owner, repo, number: Number(prNumber), cursor }
+        })
+      });
+      if (data.errors) throw new Error("Could not verify unresolved review threads.");
+      const threads = data.data?.repository?.pullRequest?.reviewThreads;
+      if (!threads?.nodes || !threads.pageInfo) throw new Error("Missing review thread evidence.");
+      if (threads.nodes.some((thread) => !thread.isResolved &&
+          thread.comments.nodes.some((comment) => isTrustedReviewLogin(comment.author?.__typename === "Bot" && !comment.author.login.endsWith("[bot]")
+            ? `${comment.author.login}[bot]` : comment.author?.login, "codex", config)))) return "fail";
+      cursor = threads.pageInfo.hasNextPage ? threads.pageInfo.endCursor : null;
+      if (threads.pageInfo.hasNextPage && !cursor) throw new Error("Missing review thread cursor.");
+    } while (cursor);
+
     const reviewsAfterRequest = reviews.filter((review) => isAfterRequest(review.submitted_at, requestMarker));
-    const latestCodexResult = latestCodexNativeReviewResult(reviewsAfterRequest, reviewComments, headSha, config);
-    if (latestCodexResult === "pass") return "pass";
-    if (latestCodexResult === "fail") return "fail";
+    const eligibleNativeResult = latestCodexNativeReviewResult(reviewsAfterRequest, reviewComments, headSha, config);
+    const commentResult = latestCodexCommentResult(comments, headSha, requestMarker, config);
+    const latestCommentAt = Math.max(...comments.filter((comment) =>
+      isTrustedReviewLogin(comment.user?.login, "codex", config) && isCodexReviewSignal(comment.body)
+    ).map((comment) => Date.parse(codexCommentTime(comment) || "")).filter(Number.isFinite));
+    const latestReviewAt = Math.max(...reviewsAfterRequest.filter((review) => review.commit_id === headSha &&
+      isTrustedReviewLogin(review.user?.login, "codex", config)
+    ).map((review) => Date.parse(review.submitted_at || "")).filter(Number.isFinite));
+    if (eligibleNativeResult === "pass" && latestReviewAt > latestCommentAt) return "pass";
+    if (!commentResult) return eligibleNativeResult || "pending";
+    if (commentResult !== "pass") return commentResult;
 
     const timeline = await listPaginated(`/repos/${owner}/${repo}/issues/${prNumber}/timeline`);
     const triggerAt = requestMarker.sourceCommentCreatedAt || requestMarker.requestedAt || requestMarker.commentCreatedAt;
-    const summaryAccepted = comments.some((comment) => {
-      if (!isAcceptableCodexSummaryComment(comment, headSha, requestMarker, config)) return false;
-      if (hasHeadUpdateBetweenTimestamps(timeline, triggerAt, comment.created_at)) {
-        console.warn(`AI Review gate rejected Codex summary ${comment.id}: head moved between trigger ${triggerAt} and summary ${comment.created_at}.`);
-        return false;
-      }
-      return true;
-    });
-    return summaryAccepted ? "pass" : "pending";
+    if (hasHeadUpdateBetweenTimestamps(timeline, triggerAt, new Date(latestCommentAt).toISOString())) return "pending";
+    return "pass";
   }
 
   if (reviews.some((review) =>
@@ -172,8 +206,8 @@ async function fetchEvidence() {
 await maybePostTriggerComment();
 
 if (!await waitForQuietHead()) {
-  console.log(`AI Review gate skipped stale run for ${headSha}; PR head changed during debounce.`);
-  process.exit(0);
+  console.log(`AI Review gate rejected stale run for ${headSha}; PR head changed during debounce.`);
+  process.exit(1);
 }
 
 const started = Date.now();
@@ -196,8 +230,13 @@ while (Date.now() - started <= maxWaitMs) {
 }
 
 if (outcome === "stale") {
-  console.log(`AI Review gate skipped stale run for ${headSha}; PR head moved.`);
-  process.exit(0);
+  console.log(`AI Review gate rejected stale run for ${headSha}; PR head moved.`);
+  process.exit(1);
+}
+
+if (outcome === "pass" && !await currentHeadMatches()) {
+  console.error("AI Review rejected: PR head changed during evidence collection.");
+  process.exit(1);
 }
 
 if (outcome === "pass") {

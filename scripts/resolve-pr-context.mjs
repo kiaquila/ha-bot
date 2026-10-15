@@ -44,6 +44,11 @@ if (!prNumber) {
 }
 
 const pull = await request(`/repos/${owner}/${repo}/pulls/${prNumber}`);
+const event = process.env.GITHUB_EVENT_PATH
+  ? JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH, "utf8")) : {};
+if (event.pull_request?.head?.sha && event.pull_request.head.sha !== pull.head.sha) {
+  throw new Error("PR head moved since this workflow event; refusing to validate a different commit.");
+}
 const output = {
   pr_number: String(pull.number),
   head_sha: pull.head.sha,

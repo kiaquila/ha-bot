@@ -53,6 +53,9 @@ jobs:
       - name: Run test suite
         run: pnpm run check:tests
 
+      - name: Test native review gate
+        run: pnpm run check:review
+
       - name: Lint production deploy script
         run: shellcheck scripts/deploy-production.sh
 

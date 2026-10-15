@@ -11,6 +11,10 @@ permissions:
   contents: read
   pull-requests: read
 
+concurrency:
+  group: ai-review-rerun-${{ github.event.pull_request.number || github.event.issue.number }}
+  cancel-in-progress: false
+
 jobs:
   ai-review-rerun:
     name: ai-review-rerun
@@ -24,10 +28,13 @@ jobs:
         github.event.comment.user.type == 'Bot' &&
         (
           startsWith(github.event.comment.body, 'Codex Review:') ||
+          contains(github.event.comment.body, '<!-- codex-review-receipt:v1 -->') ||
+          contains(github.event.comment.body, '<!-- codex-pull-request-review-summary -->') ||
           contains(github.event.comment.body, 'AI_REVIEW_OUTCOME:')
         )
       )
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - name: Checkout PR content
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

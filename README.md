@@ -53,7 +53,7 @@ required GitHub environment secrets.
 This repository carries the minimal Unicorn Hub control plane for PR-only,
 review-gated development.
 
-- `pnpm run preflight` runs local guardrails, Python validation, and tests.
+- `pnpm run preflight` runs local guardrails, Python validation, bot tests, and native-review regression tests.
 - `scripts/new-worktree.mjs --slug <feature>` creates an isolated in-repo worktree.
 - Product-code and production-runtime PRs must include complete feature memory
   under `specs/<feature-id>/`.

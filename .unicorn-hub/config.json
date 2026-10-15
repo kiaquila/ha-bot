@@ -15,6 +15,7 @@
   "requiredChecks": [
     "baseline-checks",
     "guard",
+    "osv-scan",
     "AI Review"
   ],
   "defaultBaseBranch": "main",
