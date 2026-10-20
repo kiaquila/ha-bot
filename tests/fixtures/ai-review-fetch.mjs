@@ -11,7 +11,8 @@ globalThis.fetch = async (url, options = {}) => {
   if (url.endsWith('/pulls/1')) data = { head: { sha: f.headRace && ++heads > 1 ? 'a'.repeat(40) : f.sha } };
   else if (url.includes('/issues/1/comments')) data = [
     ...f.noMarker ? [] : [{ id: 1, user: { login: 'github-actions[bot]' }, created_at: start, body: createAiReviewRequestMarkerBody({ agent: 'codex', headSha: f.sha, requestId: 'fixture', sourceCommentId: '1', sourceCommentCreatedAt: start, requestedAt: start }) }],
-    { id: 2, user: f.spoof ? { login: 'spoof[bot]' } : bot, created_at: f.edited ? '2026-10-14T00:00:00Z' : end, updated_at: end, body: f.noSha ? "Codex Review: Didn't find any major issues." : f.body ?? f.receipt }
+    { id: 2, user: f.spoof ? { login: 'spoof[bot]' } : bot, created_at: f.edited ? '2026-10-14T00:00:00Z' : end, updated_at: end, body: f.noSha ? "Codex Review: Didn't find any major issues." : f.body ?? f.receipt },
+    ...(f.extraBodies || []).map((body, i) => ({ id: 3 + i, user: bot, created_at: "2026-10-15T10:03:00Z", updated_at: "2026-10-15T10:03:00Z", body }))
   ];
   else if (url.includes('/pulls/1/reviews')) data = f.formal || f.previousFailure || f.missingFormalSha ? [{ id: 10, user: bot, commit_id: f.missingFormalSha ? undefined : f.sha, submitted_at: f.previousFailure ? '2026-10-14T00:00:00Z' : f.formalSubmittedAt ?? '2026-10-15T10:02:00Z', state: f.previousFailure ? 'CHANGES_REQUESTED' : 'COMMENTED' }] : [];
   else if (url.includes('/pulls/1/comments')) data = f.advisory ? [{ pull_request_review_id: 10, user: bot, body: '[P3] advisory' }] : [];
