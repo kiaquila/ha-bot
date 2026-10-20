@@ -17,3 +17,5 @@ OSV found GHSA-6q48-6c7w-9gw2 in transitive certifi 2026.7.22. Added a minimal e
 Structured code approval uses the mandatory unique matching-head Code Review row completion datetime for freshness and ordering. It must follow the active request and cannot exceed comment edit time (allowing GitHub second precision). A security-only edit never refreshes or reorders an older code verdict. Pending/invalid state uses edit time to invalidate prior success.
 
 Positive static receipt/legacy evidence uses immutable created_at for freshness and ordering; edits cannot renew approval or overtake later pending state. Invalidating signals continue to use updated_at. Added regression for clean receipt created before pending state and edited afterward.
+
+Native review follow-up: request-bound historical prose failures, retain immutable positive timestamps before freshness downgrade, and add both regressions. Mandatory preflight passed with 26 Node tests. Native findings and unresolved threads retain their veto.

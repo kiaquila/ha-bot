@@ -250,16 +250,17 @@ export function isAcceptableCodexSummaryComment(comment, headSha, requestMarker 
 }
 
 export function latestCodexCommentResult(comments, headSha, requestMarker, config = {}) {
-  if (comments.some((comment) => classifyCodexSummaryComment(comment, headSha, requestMarker, config) === "fail" &&
-    /\bP[0-2]\b|found (?:some |major |any )?(?:issues|findings)|unresolved (?:issues|findings)|changes requested/i.test(comment.body || ""))) return "fail";
   const requestedAt = Date.parse(requestMarker?.sourceCommentCreatedAt || requestMarker?.requestedAt || "");
+  if (comments.some((comment) => Date.parse(codexCommentTime(comment) || "") >= requestedAt && classifyCodexSummaryComment(comment, headSha, requestMarker, config) === "fail" &&
+    /\bP[0-2]\b|found (?:some |major |any )?(?:issues|findings)|unresolved (?:issues|findings)|changes requested/i.test(comment.body || ""))) return "fail";
   const candidates = comments.filter((comment) =>
     isTrustedReviewLogin(comment?.user?.login, "codex", config) &&
     Date.parse(codexCommentTime(comment) || "") >= requestedAt
   ).map((comment) => {
     let result = classifyCodexSummaryComment(comment, headSha, requestMarker, config) || "pending";
-    if (result === "pass" && Date.parse(verdictTime(comment, result) || "") < requestedAt) result = "pending";
-    return { result, time: verdictTime(comment, result) };
+    const time = verdictTime(comment, result);
+    if (result === "pass" && Date.parse(time || "") < requestedAt) result = "pending";
+    return { result, time };
   }).sort((a, b) => Math.floor(Date.parse(b.time) / 1000) - Math.floor(Date.parse(a.time) / 1000));
   if (!candidates.length) return null;
   const latestTime = candidates[0].time;

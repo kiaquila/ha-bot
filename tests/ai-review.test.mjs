@@ -356,3 +356,12 @@ test('editing a static clean receipt cannot renew or reorder its approval', () =
   assert.equal(latestCodexCommentResult([positive, pending], sha, marker), 'pending');
   assert.notEqual(latestCodexCommentResult([comment(receipt, { created_at: '2026-10-15T09:00:00Z', updated_at: '2026-10-15T10:03:00Z' })], sha, marker), 'pass');
 });
+
+
+test('new review requests can supersede historical prose failures and stale positive edits', () => {
+  const oldFailure = comment('Codex Review: Found issues.', { created_at: '2026-10-15T09:00:00Z', updated_at: '2026-10-15T09:00:00Z' });
+  const stale = comment(receipt, { created_at: '2026-10-15T09:00:00Z', updated_at: '2026-10-15T10:03:00Z' });
+  const fresh = comment(receipt, { created_at: '2026-10-15T10:02:00Z', updated_at: '2026-10-15T10:02:00Z' });
+  assert.equal(latestCodexCommentResult([oldFailure, fresh], sha, marker), 'pass');
+  assert.equal(latestCodexCommentResult([stale, fresh], sha, marker), 'pass');
+});
