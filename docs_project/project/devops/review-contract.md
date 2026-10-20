@@ -122,3 +122,5 @@ Structured code approval uses the mandatory unique matching-head Code Review row
 Positive static receipt/legacy evidence uses immutable created_at for freshness and ordering; edits cannot renew approval or overtake later pending state. Invalidating signals continue to use updated_at. Added regression for clean receipt created before pending state and edited afterward.
 
 Repeated same-head requests preserve validated typed code/security findings. Formal approval alone cannot clear them: a strictly newer authoritative structured completion must explicitly report false finding flags for the affected channel. Historical malformed or foreign-head payloads do not acquire this persistent barrier.
+
+Completed typed negatives retain their affected section's valid canonical completion clock in candidate ordering and history clearance. Unrelated edits cannot renew old findings; missing, invalid or running section clocks use the edit time conservatively.

@@ -391,7 +391,7 @@ test('historical security findings require newer explicit clean security state',
   const cleanBody = summary({}, { ...security, has_any_findings: false, has_unresolved_findings: false })
     .replaceAll('2026-10-15T10:01:00Z', '2026-10-15T10:05:00Z') + '\n| 🔒 **Security Review** | ✅ **Completed** <relative-time datetime="2026-10-15T10:05:00Z">2026-10-15T10:05:00Z</relative-time> | `2667f79` | Manual request |';
   const clean = comment(cleanBody, { created_at: '2026-10-15T10:05:00Z', updated_at: '2026-10-15T10:05:00Z' });
-  assert.equal(gate({ body: '', comments: [old, clean], formal: true }).status, 0);
+  assert.equal(gate({ body: '', comments: [old, clean] }).status, 0);
   const staleSecurity = { ...clean, body: clean.body.split('\n').map((line) => line.includes('**Security Review**') ? line.replaceAll('2026-10-15T10:05:00Z', '2026-10-15T09:00:00Z') : line).join('\n') };
   assert.notEqual(gate({ body: '', comments: [old, staleSecurity], formal: true }).status, 0);
   const missingTime = { ...clean, body: clean.body.split('\n').map((line) => line.includes('**Security Review**') ? line.replace(/ <relative-time[^>]+>[^<]+<\/relative-time>/, '') : line).join('\n') };
@@ -399,4 +399,20 @@ test('historical security findings require newer explicit clean security state',
   for (const body of [old.body.replaceAll(sha, 'a'.repeat(40)), old.body.replace('"has_any_findings":true', '"has_any_findings":true,"has_any_findings":false')]) {
     assert.equal(gate({ body: '', comments: [{ ...old, body }], formal: true }).status, 0);
   }
+});
+
+
+test('security-only edits do not refresh a canonical typed finding clock', () => {
+  const old = comment(summary({ has_any_findings: true }).replaceAll('2026-10-15T10:01:00Z', '2026-10-15T09:00:00Z'), { created_at: '2026-10-15T09:00:00Z', updated_at: '2026-10-15T10:05:00Z' });
+  const clean = comment(summary().replaceAll('2026-10-15T10:01:00Z', '2026-10-15T10:04:00Z'), { created_at: '2026-10-15T10:04:00Z', updated_at: '2026-10-15T10:04:00Z' });
+  assert.equal(gate({ body: '', comments: [old, clean] }).status, 0);
+});
+
+
+test('security finding completion survives unrelated newer code/comment edits', () => {
+  const sec = { commit_sha: sha, has_any_findings: true, has_unresolved_findings: true, status: 'completed' };
+  const securityRow = (time) => '\n| 🔒 **Security Review** | ✅ **Completed** <relative-time datetime="' + time + '">' + time + '</relative-time> | `2667f79` | Manual request |';
+  const old = comment(summary({}, sec).replaceAll('2026-10-15T10:01:00Z', '2026-10-15T10:05:00Z') + securityRow('2026-10-15T09:00:00Z'), { created_at: '2026-10-15T09:00:00Z', updated_at: '2026-10-15T10:05:00Z' });
+  const clean = comment(summary({}, { ...sec, has_any_findings: false, has_unresolved_findings: false }).replaceAll('2026-10-15T10:01:00Z', '2026-10-15T10:04:00Z') + securityRow('2026-10-15T10:04:00Z'), { created_at: '2026-10-15T10:04:00Z', updated_at: '2026-10-15T10:04:00Z' });
+  assert.equal(gate({ body: '', comments: [old, clean] }).status, 0);
 });
