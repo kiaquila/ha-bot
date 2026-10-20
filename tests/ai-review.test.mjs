@@ -305,7 +305,7 @@ test("unseen closings require an authoritative later structured verdict", () => 
     assert.notEqual(classifyReceipt(unknown, head, request), 'pass', closing);
     const clean = make(summary(), '2026-10-15T03:00:00Z');
     assert.equal(selectSummary([unknown, clean], head, request), 'pass');
-    assert.equal(selectSummary([clean, { ...unknown, updated_at: '2026-10-15T04:00:00Z' }], head, request), 'pass');
+    assert.notEqual(selectSummary([clean, { ...unknown, updated_at: '2026-10-15T04:00:00Z' }], head, request), 'pass');
   }
   const clean = make(summary(), '2026-10-15T03:00:00Z');
   for (const invalid of [
@@ -318,12 +318,12 @@ test("unseen closings require an authoritative later structured verdict", () => 
 });
 
 
-test('actual gate corroborates presentation in either order and rejects late structured invalidation', () => {
+test('actual gate requires newer structured authority and rejects late invalidation', () => {
   const unknown = receipt.replace(':rocket:', 'Swish!');
-  for (const fixture of [{ body: unknown, extraBodies: [summary()] }, { body: summary(), extraBodies: [unknown] }]) {
+  for (const fixture of [{ body: unknown, extraBodies: [summary()] }]) {
     const result = gate(fixture); assert.equal(result.status, 0, result.stderr);
   }
-  for (const body of [summary({ status: 'in_progress' }), summary({ has_any_findings: true }),
+  for (const body of [unknown, summary({ status: 'in_progress' }), summary({ has_any_findings: true }),
     summary({}, { commit_sha: sha, has_any_findings: false, has_unresolved_findings: false, status: 'running' })]) {
     const result = gate({ body: summary(), extraBodies: [unknown, body] }); assert.equal(result.status, 1, result.stdout);
   }

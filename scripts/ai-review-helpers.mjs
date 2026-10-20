@@ -133,17 +133,6 @@ export function extractCodexPriority(body) {
 }
 
 
-// This identifies a presentation receipt, never an independent clean verdict.
-// Only an exact-head typed summary in the same request can corroborate it.
-function isCodexPresentationReceipt(body, headSha) {
-  const text = body.replace(/^<!-- codex-review-receipt:v1 -->\s*/, "")
-    .replace(/\s*<details>\s*<summary>[^<]*About Codex in GitHub<\/summary>[\s\S]*<\/details>\s*$/, "").trim();
-  const match = text.match(/^Codex Review: Did(?: not|n['’]t) find any major issues\.([^\r\n]*)\r?\n\s*\r?\n?\*\*Reviewed commit:\*\* `([a-f0-9]{10}|[a-f0-9]{40})`$/i);
-  return Boolean(match && [headSha, headSha.slice(0, 10)].includes(match[2]) &&
-    !/[<>`{}\[\]|*=]/.test(match[1]) &&
-    !/\b(?:P[0-3]|codex|review\w*|commit\w*|sha\w*|AI_REVIEW\w*|status|state|verdict|finding\w*|issue\w*|unresolved|pending|queued|running|failed|changes? requested|false|true|null)\b/i.test(match[1]));
-}
-
 const receiptMarker = "<!-- codex-review-receipt:v1 -->";
 const summaryMarker = "<!-- codex-pull-request-review-summary -->";
 
@@ -226,7 +215,7 @@ export function classifyCodexSummaryComment(comment, headSha, requestMarker = nu
   const content = text.replace(/\s*<details>\s*<summary>[^<]*About Codex in GitHub<\/summary>[\s\S]*<\/details>\s*$/, "");
   const match = content.match(/^Codex Review:\s*Did(?: not|n't|n’t) find any major issues\.(?: :rocket:| Keep it up!)?\s*(?:\*\*Reviewed commit:\*\* `([a-f0-9]{10}|[a-f0-9]{40})`)?\s*$/i);
   if (containsBlockingSeverity(body, "codex") || /found (?:some |major |any )?(?:issues|findings)|unresolved (?:issues|findings)|changes requested/i.test(content)) return "fail";
-  if (!match) return isCodexPresentationReceipt(body, headSha) ? "presentation" : null;
+  if (!match) return null;
   if (match[1]) return (match[1] === headSha || match[1] === headSha.slice(0, 10)) ? "pass" : null;
   if (receipt) return null;
   // Preserve legacy summaries without a SHA only behind the trusted request/timeline checks.
@@ -248,17 +237,11 @@ export function latestCodexCommentResult(comments, headSha, requestMarker, confi
     isTrustedReviewLogin(comment?.user?.login, "codex", config) &&
     Date.parse(codexCommentTime(comment) || "") >= requestedAt
   ).sort((a, b) => Date.parse(codexCommentTime(b)) - Date.parse(codexCommentTime(a)) || Number(b.id) - Number(a.id));
-  // A fixed clean receipt with opaque closing can follow its typed summary.
-  // Do not let presentation order mask the latest authoritative state.
-  const authoritative = candidates.filter((comment) => classifyCodexSummaryComment(comment, headSha, requestMarker, config) !== "presentation");
-  const proof = authoritative.find((comment) => String(comment.body || "").trim().startsWith(summaryMarker) &&
-    classifyCodexSummaryComment(comment, headSha, requestMarker, config) === "pass");
-  if (proof) candidates.splice(0, candidates.length, ...authoritative);
   if (!candidates.length) return null;
   // At the same API timestamp, pending/failing evidence wins over a clean receipt.
   const latestTime = codexCommentTime(candidates[0]);
   const results = candidates.filter((comment) => codexCommentTime(comment) === latestTime)
-    .map((comment) => classifyCodexSummaryComment(comment, headSha, requestMarker, config) || "pending").map((result) => result === "presentation" ? "pending" : result);
+    .map((comment) => classifyCodexSummaryComment(comment, headSha, requestMarker, config) || "pending");
   return results.includes("fail") ? "fail" : results.includes("pending") ? "pending" :
     results.includes("resolved_findings") ? "resolved_findings" : "pass";
 }
