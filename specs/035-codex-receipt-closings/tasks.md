@@ -19,3 +19,5 @@ Structured code approval uses the mandatory unique matching-head Code Review row
 Positive static receipt/legacy evidence uses immutable created_at for freshness and ordering; edits cannot renew approval or overtake later pending state. Invalidating signals continue to use updated_at. Added regression for clean receipt created before pending state and edited afterward.
 
 Native review follow-up: request-bound historical prose failures, retain immutable positive timestamps before freshness downgrade, and add both regressions. Mandatory preflight passed with 26 Node tests. Native findings and unresolved threads retain their veto.
+
+Native gate-ordering follow-up: formal-review comparisons use outcome-aware comment verdict timestamps, with conservative second buckets, so security-only edits cannot reorder code approval. Added spawned actual-gate regression. Mandatory preflight passed with 27 Node tests.

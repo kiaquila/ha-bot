@@ -365,3 +365,11 @@ test('new review requests can supersede historical prose failures and stale posi
   assert.equal(latestCodexCommentResult([oldFailure, fresh], sha, marker), 'pass');
   assert.equal(latestCodexCommentResult([stale, fresh], sha, marker), 'pass');
 });
+
+
+test('formal review ordering uses code completion rather than security edit time', () => {
+  const oldCode = comment(summary(), { created_at: '2026-10-15T10:01:00Z', updated_at: '2026-10-15T10:05:00Z' });
+  const unknown = comment(receipt.replace(' :rocket:', ' Needs work.'), { created_at: '2026-10-15T10:03:00Z', updated_at: '2026-10-15T10:03:00Z' });
+  const result = gate({ body: oldCode.body, comments: [oldCode, unknown], formal: true, formalSubmittedAt: '2026-10-15T10:04:00Z' });
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+});
