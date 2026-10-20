@@ -170,7 +170,7 @@ function parseStructuredCodexSummary(body, headSha, requestMarker) {
   let state;
   try { state = JSON.parse(match[1]); } catch { return null; }
   // Round-tripping rejects duplicate JSON keys instead of silently taking the last value.
-  const compact = match[1].replace(/"(?:\\.|[^"\\])*"|\s+/g, (token) => token.startsWith('"') ? token : "");
+  const compact = match[1].replace(/"(?:\.|[^"\\])*"|\s+/g, (token) => token.startsWith('"') ? token : "");
   if (JSON.stringify(state) !== compact || !exactlyKeys(state, ["code_review", "security_review"])) return null;
   for (const value of Object.values(state)) {
     if (!exactlyKeys(value, ["commit_sha", "has_any_findings", "has_unresolved_findings", "status"])) return null;
@@ -341,4 +341,54 @@ export function isAcceptableClaudeComment(comment, headSha, config = {}) {
   if (!isTrustedReviewLogin(login, "claude", config)) return false;
   if (extractMarkerSha(body) !== headSha) return false;
   return extractClaudeOutcome(body) === "pass";
+}
+
+
+function typedCodexState(comment) {
+  const body = String(comment?.body || "").trim();
+  const match = body.match(/^<!-- codex-pull-request-review-summary -->\s*<!-- codex-review-state:v1 (.*?) -->\s*## Codex Review Summary(?:\n|$)/s);
+  if (!match || (body.match(/<!-- codex-/g) || []).length !== 2) return null;
+  let state;
+  try { state = JSON.parse(match[1]); } catch { return null; }
+  const compact = match[1].replace(/"(?:\.|[^"\\])*"|\s+/g, (token) => token.startsWith('"') ? token : "");
+  if (JSON.stringify(state) !== compact || !exactlyKeys(state, ["code_review", "security_review"])) return null;
+  for (const value of Object.values(state)) {
+    if (!exactlyKeys(value, ["commit_sha", "has_any_findings", "has_unresolved_findings", "status"])) return null;
+    if (Object.values(value).every((entry) => entry === null)) continue;
+    if (!/^[a-f0-9]{40}$/.test(value.commit_sha || "") || typeof value.has_any_findings !== "boolean" ||
+        typeof value.has_unresolved_findings !== "boolean" ||
+        !["completed", "in_progress", "queued", "pending", "failed", "cancelled"].includes(value.status) ||
+        (!value.has_any_findings && value.has_unresolved_findings)) return null;
+  }
+  return state;
+}
+
+export function hasUnclearedStructuredFindings(comments, headSha, requestMarker, config = {}) {
+  const evidence = comments.filter((comment) => isTrustedReviewLogin(comment.user?.login, "codex", config))
+    .map((comment) => ({ comment, state: typedCodexState(comment) })).filter((entry) => entry.state);
+  return evidence.some(({ comment, state }) => ["code_review", "security_review"].some((kind) => {
+    const review = state[kind];
+    if (review.commit_sha !== headSha || !(review.has_any_findings || review.has_unresolved_findings)) return false;
+    const findingTime = Math.floor(Date.parse(codexCommentTime(comment) || "") / 1000);
+    return !evidence.some((clean) => {
+      const next = clean.state[kind];
+      return next.commit_sha === headSha && next.status === "completed" && next.has_any_findings === false &&
+        next.has_unresolved_findings === false && classifyCodexSummaryComment(clean.comment, headSha, requestMarker, config) === "pass" &&
+        sectionCompletionBucket(clean.comment, kind) > findingTime &&
+        sectionCompletionBucket(clean.comment, kind) > Math.floor(Date.parse(requestMarker?.sourceCommentCreatedAt || requestMarker?.requestedAt || "") / 1000);
+    });
+  }));
+}
+
+
+function sectionCompletionBucket(comment, kind) {
+  const title = kind === "security_review" ? "**Security Review**" : "**Code Review**";
+  const rows = String(comment.body || "").split(/\r?\n/).filter((line) => line.startsWith("|") && line.includes(title));
+  if (rows.length !== 1) return NaN;
+  const match = rows[0].match(/\| ✅ \*\*Completed\*\* <relative-time datetime="([^"]+)">([^<]+)<\/relative-time> \|/);
+  const value = match && match[1] === match[2] ? Date.parse(match[1]) : NaN;
+  const updated = Date.parse(comment.updated_at || comment.created_at || "");
+  return Number.isFinite(value) && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?Z$/.test(match[1]) &&
+    new Date(value).toISOString().slice(0, 19) === match[1].slice(0, 19) &&
+    value <= updated + 999 ? Math.floor(value / 1000) : NaN;
 }

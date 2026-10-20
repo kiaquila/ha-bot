@@ -5,6 +5,7 @@ import {
   hasHeadUpdateBetweenTimestamps,
   isAcceptableClaudeComment,
   verdictTime,
+  hasUnclearedStructuredFindings,
   classifyCodexSummaryComment,
   isTrustedReviewLogin,
   latestCodexCommentResult,
@@ -147,6 +148,7 @@ async function fetchEvidence() {
     // A new request marker must never erase current-head failures or unresolved threads.
     const nativeResult = latestCodexNativeReviewResult(reviews, reviewComments, headSha, config);
     if (nativeResult === "fail") return "fail";
+    if (hasUnclearedStructuredFindings(comments, headSha, requestMarker, config)) return "pending";
     let cursor = null;
     do {
       const data = await request("/graphql", {
