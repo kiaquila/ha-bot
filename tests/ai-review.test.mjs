@@ -348,3 +348,11 @@ test("security-only edits cannot refresh or reorder old code completion", () => 
   assert.equal(selectSummary([unknown, dated(codeAt('2026-10-15T02:45:00Z'), '2026-10-15T03:00:00Z')], head, request), 'pass');
   assert.notEqual(classifyReceipt(dated(codeAt('2026-10-15T02:00:00Z').replace(/<relative-time[^>]+>[^<]+<\/relative-time>/, ''), '2026-10-15T03:00:00Z'), head, request), 'pass');
 });
+
+
+test('editing a static clean receipt cannot renew or reorder its approval', () => {
+  const positive = comment(receipt, { created_at: '2026-10-15T10:01:00Z', updated_at: '2026-10-15T10:03:00Z' });
+  const pending = comment(summary({ status: 'in_progress' }), { created_at: '2026-10-15T10:02:00Z', updated_at: '2026-10-15T10:02:00Z' });
+  assert.equal(latestCodexCommentResult([positive, pending], sha, marker), 'pending');
+  assert.notEqual(latestCodexCommentResult([comment(receipt, { created_at: '2026-10-15T09:00:00Z', updated_at: '2026-10-15T10:03:00Z' })], sha, marker), 'pass');
+});

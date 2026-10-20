@@ -145,7 +145,7 @@ function codeCompletionTime(comment) {
 
 function verdictTime(comment, result) {
   return result === "pass" && String(comment?.body || "").trim().startsWith(summaryMarker)
-    ? codeCompletionTime(comment) : comment?.updated_at || comment?.created_at;
+    ? codeCompletionTime(comment) : result === "pass" ? comment?.created_at : comment?.updated_at || comment?.created_at;
 }
 
 const receiptMarker = "<!-- codex-review-receipt:v1 -->";
@@ -257,7 +257,8 @@ export function latestCodexCommentResult(comments, headSha, requestMarker, confi
     isTrustedReviewLogin(comment?.user?.login, "codex", config) &&
     Date.parse(codexCommentTime(comment) || "") >= requestedAt
   ).map((comment) => {
-    const result = classifyCodexSummaryComment(comment, headSha, requestMarker, config) || "pending";
+    let result = classifyCodexSummaryComment(comment, headSha, requestMarker, config) || "pending";
+    if (result === "pass" && Date.parse(verdictTime(comment, result) || "") < requestedAt) result = "pending";
     return { result, time: verdictTime(comment, result) };
   }).sort((a, b) => Math.floor(Date.parse(b.time) / 1000) - Math.floor(Date.parse(a.time) / 1000));
   if (!candidates.length) return null;

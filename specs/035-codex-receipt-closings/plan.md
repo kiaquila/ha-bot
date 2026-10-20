@@ -6,3 +6,5 @@ Keep strict legacy receipt parsing. Modern structured v1 state supplies the expl
 Classifier/latest-result regressions cover unseen encouragement and contradictory prose without standalone approval; actual gate and rerun tests verify native evidence integration. Run mandatory repository preflight. Genuine native final-head review and required checks remain mandatory.
 
 Structured code approval uses the mandatory unique matching-head Code Review row completion datetime for freshness and ordering. It must follow the active request and cannot exceed comment edit time (allowing GitHub second precision). A security-only edit never refreshes or reorders an older code verdict. Pending/invalid state uses edit time to invalidate prior success.
+
+Positive static receipt/legacy evidence uses immutable created_at for freshness and ordering; edits cannot renew approval or overtake later pending state. Invalidating signals continue to use updated_at. Added regression for clean receipt created before pending state and edited afterward.
