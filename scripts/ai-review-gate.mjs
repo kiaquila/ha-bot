@@ -4,7 +4,8 @@ import {
   createAiReviewRequestMarkerBody,
   hasHeadUpdateBetweenTimestamps,
   isAcceptableClaudeComment,
-  codexCommentTime,
+  verdictTime,
+  classifyCodexSummaryComment,
   isTrustedReviewLogin,
   latestCodexCommentResult,
   isAcceptableNativeReview,
@@ -178,10 +179,10 @@ async function fetchEvidence() {
     const commentResult = latestCodexCommentResult(comments, headSha, requestMarker, config);
     const latestCommentAt = Math.max(...comments.filter((comment) =>
       isTrustedReviewLogin(comment.user?.login, "codex", config)
-    ).map((comment) => Date.parse(codexCommentTime(comment) || "")).filter(Number.isFinite));
+    ).map((comment) => Math.floor(Date.parse(verdictTime(comment, classifyCodexSummaryComment(comment, headSha, requestMarker, config)) || "") / 1000) * 1000).filter(Number.isFinite));
     const latestReviewAt = Math.max(...reviewsAfterRequest.filter((review) => review.commit_id === headSha &&
       isTrustedReviewLogin(review.user?.login, "codex", config)
-    ).map((review) => Date.parse(review.submitted_at || "")).filter(Number.isFinite));
+    ).map((review) => Math.floor(Date.parse(review.submitted_at || "") / 1000) * 1000).filter(Number.isFinite));
     if (eligibleNativeResult === "pass" && latestReviewAt > latestCommentAt) return "pass";
     if (commentResult === "resolved_findings") return eligibleNativeResult === "pass" ? "pass" : "pending";
     if (!commentResult) return eligibleNativeResult || "pending";

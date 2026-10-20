@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
-import { isAcceptableCodexSummaryComment as accepts, classifyCodexNativeReview, latestCodexNativeReviewResult, latestCodexCommentResult } from '../scripts/ai-review-helpers.mjs';
+import { classifyCodexSummaryComment as classifyReceipt, latestCodexCommentResult as selectSummary, isAcceptableCodexSummaryComment as accepts, classifyCodexNativeReview, latestCodexNativeReviewResult, latestCodexCommentResult } from '../scripts/ai-review-helpers.mjs';
 import { shouldRouteAiReviewRerunEvent as routes, selectAiReviewRun, rerunAiReviewForPrHead, rerunEvidenceUpdatedAt } from '../scripts/ai-review-rerun.mjs';
 const sha = '2667f79cd7676ff331730cabf661d38dbbcddb0d';
 const before = '2026-10-15T10:00:00Z', after = '2026-10-15T10:01:00Z';
@@ -16,10 +16,10 @@ function summary(code = {}, security = {}) {
   return '<!-- codex-pull-request-review-summary -->\n<!-- codex-review-state:v1 ' + JSON.stringify({
     code_review: { commit_sha: sha, has_any_findings: false, has_unresolved_findings: false, status: 'completed', ...code },
     security_review: { commit_sha: null, has_any_findings: null, has_unresolved_findings: null, status: null, ...security }
-  }) + ' -->\n\n## Codex Review Summary\n\n| Review | Status | Commit | Review trigger |\n| 📝 **Code Review** | ✅ **Completed** | `2667f79` | Manual request |';
+  }) + ' -->\n\n## Codex Review Summary\n\n| Review | Status | Commit | Review trigger |\n| 📝 **Code Review** | ✅ **Completed** <relative-time datetime="2026-10-15T10:01:00Z">2026-10-15T10:01:00Z</relative-time> | `2667f79` | Manual request |';
 }
 test('observed receipt, legacy and informational footer pass', () => {
-  assert.equal(accepts(comment(observed.summary), sha, marker), true);
+  assert.equal(accepts(comment(observed.summary, { updated_at: "2026-10-15T21:49:23Z" }), sha, marker), true);
   for (const body of [legacy, receipt, receipt.replace(':rocket:', 'Keep it up!'), legacy + '\n<details> <summary>ℹ️ About Codex in GitHub</summary>\nInformation\n</details>']) assert.equal(accepts(comment(body), sha, marker), true);
   const noSha = comment("Codex Review: Didn't find any major issues.");
   assert.equal(accepts(noSha, sha, marker), true); assert.equal(accepts(noSha, sha), false);
@@ -32,7 +32,7 @@ test('receipt rejects wrong/missing/ambiguous SHA, spoofing, malformed markers a
 test('structured summary requires exact schema, full SHA, explicit verdict, completed state and matching row', () => {
   assert.equal(accepts(comment(summary()), sha, marker), true);
   for (const code of [{ commit_sha: sha.slice(0, 10) }, { commit_sha: 'a'.repeat(40) }, { commit_sha: null }, { status: 'in_progress' }, { status: 'failed' }, { status: null }, { has_any_findings: 'false' }, { has_any_findings: null }, { has_any_findings: true }, { has_unresolved_findings: true }, { extra: false }]) assert.equal(accepts(comment(summary(code)), sha, marker), false, JSON.stringify(code));
-  for (const body of [summary().replace('"has_any_findings":false', '"has_any_findings":true,"has_any_findings":false'), summary().replace('"code_review":', '"other":'), summary().replace('"completed"', 'completed'), summary() + '\n<!-- codex-review-state:v1 {} -->', summary().replace('**Completed**', '**Running**'), summary().replace('`2667f79`', '`aaaaaaa`'), summary() + '\n[P1] Defect', summary() + '\n| Unexpected | Found major issues |', summary() + '\nFound unresolved issues.', summary().replace('**Completed** |', '**Completed** Failed |'), summary() + '\n<!-- codex-review-receipt:v1 -->']) assert.equal(accepts(comment(body), sha, marker), false, body);
+  for (const body of [summary().replace('"has_any_findings":false', '"has_any_findings":true,"has_any_findings":false'), summary().replace('"code_review":', '"other":'), summary().replace('"completed"', 'completed'), summary() + '\n<!-- codex-review-state:v1 {} -->', summary().replace('**Completed**', '**Running**'), summary().replace('`2667f79`', '`aaaaaaa`'), summary() + '\n[P1] Defect', summary() + '\n| Unexpected | Found major issues |', summary() + '\nFound unresolved issues.', summary().replace('**Completed**', '**Completed** Failed'), summary() + '\n<!-- codex-review-receipt:v1 -->']) assert.equal(accepts(comment(body), sha, marker), false, body);
   assert.equal(accepts(comment(summary({}, { has_any_findings: 'false' })), sha, marker), false);
   assert.equal(accepts(comment(summary({}, { commit_sha: [sha], has_any_findings: false, has_unresolved_findings: false, status: 'completed' })), sha, marker), false);
 });
@@ -40,7 +40,7 @@ test('edited summary uses updated_at; newer negative/unfinished result overrides
   const old = comment(receipt, { created_at: before });
   const edited = comment(summary(), { id: 1, created_at: '2026-10-14T10:00:00Z', updated_at: after });
   assert.equal(latestCodexCommentResult([old, edited], sha, marker), 'pass');
-  assert.equal(latestCodexCommentResult([old, comment(receipt.replace('receipt:v1', 'receipt:v2'))], sha, marker), 'pending');
+  assert.equal(latestCodexCommentResult([old, comment(receipt.replace('receipt:v1', 'receipt:v2'))], sha, marker), 'fail');
   assert.equal(latestCodexCommentResult([old, { ...edited, body: summary({ status: 'in_progress' }) }], sha, marker), 'pending');
   assert.equal(latestCodexCommentResult([old, { ...edited, body: summary({ has_any_findings: true, has_unresolved_findings: true }) }], sha, marker), 'fail');
   assert.equal(latestCodexCommentResult([comment(receipt), { ...edited, body: summary({ status: 'in_progress' }) }], sha, marker), 'pending');
@@ -106,7 +106,7 @@ function gate(fixture = {}) {
   });
 }
 test('actual gate CLI accepts receipt, legacy, edited summary and formal review', () => {
-  for (const fixture of [{}, { body: legacy }, { body: summary(), edited: true }, { formal: true }, { formal: true, advisory: true, body: summary({ has_any_findings: true }) }, { noSha: true }]) { const result = gate(fixture); assert.equal(result.status, 0, result.stderr + result.stdout); }
+  for (const fixture of [{}, { body: legacy }, { body: summary(), edited: true }, { formal: true }, { formal: true, advisory: true }, { noSha: true }]) { const result = gate(fixture); assert.equal(result.status, 0, result.stderr + result.stdout); }
 });
 test('actual gate blocks stale/missing SHA, findings before new request, unresolved P3 and races', () => {
   for (const fixture of [{ body: receipt.replace('2667f79cd7', 'aaaaaaaaaa') }, { noMarker: true }, { body: receipt.split('\n\n**')[0] }, { unresolved: true }, { unresolvedGraphqlBot: true }, { previousFailure: true }, { headRace: true }, { timelineRace: true }, { body: summary({ status: 'in_progress' }) }, { body: summary({ has_any_findings: true }) }, { body: summary({}, { commit_sha: sha, has_any_findings: true, has_unresolved_findings: true, status: 'completed' }) }, { spoof: true }, { graphqlError: true }, { missingFormalSha: true, body: 'Completed' }]) { const result = gate(fixture); assert.equal(result.status, 1, JSON.stringify(fixture) + result.stdout); }
@@ -291,4 +291,94 @@ test('all new trusted Codex top-level comments route consistently with pending c
     assert.equal(latestCodexCommentResult([comment(receipt, { updated_at: before }), event.comment], sha, marker), 'pending');
   }
   assert.equal(routes({ action: 'created', issue: { pull_request: {} }, comment: comment('AI Review gate failed.', { user: { login: 'github-actions[bot]' } }) }), false);
+});
+
+
+test("unseen closings require an authoritative later structured verdict", () => {
+  const head = '2667f79cd7676ff331730cabf661d38dbbcddb0d';
+  const trusted = { login: 'chatgpt-codex-connector[bot]' };
+  const request = { agent: 'codex', sha: head, requestedAt: '2026-10-15T01:00:00Z' };
+  const make = (body, timestamp = '2026-10-15T02:00:00Z') => ({ id: 7, user: trusted, body, created_at: timestamp, updated_at: timestamp });
+  for (const closing of ['Swish!', "You're on a roll.", 'Another round soon, please!', "Chef's kiss.",
+    'May your coffee stay warm.', 'Authentication leaks credentials.', 'The deployment deletes all customer data.']) {
+    const unknown = make(`<!-- codex-review-receipt:v1 -->\nCodex Review: Didn't find any major issues. ${closing}\n\n**Reviewed commit:** \`${head}\``);
+    assert.notEqual(classifyReceipt(unknown, head, request), 'pass', closing);
+    const clean = make(summary().replaceAll('2026-10-15T10:01:00Z', '2026-10-15T03:00:00Z').replaceAll('2026-10-15T02:00:00Z', '2026-10-15T03:00:00Z'), '2026-10-15T03:00:00Z');
+    assert.equal(selectSummary([unknown, clean], head, request), 'pass');
+    assert.notEqual(selectSummary([clean, { ...unknown, updated_at: '2026-10-15T04:00:00Z' }], head, request), 'pass');
+  }
+  const clean = make(summary().replaceAll('2026-10-15T10:01:00Z', '2026-10-15T03:00:00Z').replaceAll('2026-10-15T02:00:00Z', '2026-10-15T03:00:00Z'), '2026-10-15T03:00:00Z');
+  for (const invalid of [
+    summary({ status: 'in_progress' }), summary({ has_any_findings: true }),
+    summary({ has_unresolved_findings: true }), summary({ commit_sha: 'a'.repeat(40) }),
+    summary().replace('"has_any_findings":false', '"has_any_findings":true,"has_any_findings":false'),
+    summary() + '\n<!-- codex-review-state:v1 {} -->', summary().replace('state:v1', 'state:v2'),
+    summary() + '\nFound unresolved issues.'
+  ]) assert.notEqual(selectSummary([clean, make(invalid, '2026-10-15T04:00:00Z')], head, request), 'pass', invalid);
+});
+
+
+test('actual gate requires newer structured authority and rejects late invalidation', () => {
+  const unknown = receipt.replace(':rocket:', 'Swish!');
+  for (const fixture of [{ body: unknown, extraBodies: [summary().replaceAll('2026-10-15T10:01:00Z', '2026-10-15T10:03:00Z')] }]) {
+    const result = gate(fixture); assert.equal(result.status, 0, result.stderr);
+  }
+  for (const body of [unknown, summary({ status: 'in_progress' }), summary({ has_any_findings: true }),
+    summary({}, { commit_sha: sha, has_any_findings: false, has_unresolved_findings: false, status: 'running' })]) {
+    const result = gate({ body: summary(), extraBodies: [unknown, body] }); assert.equal(result.status, 1, result.stdout);
+  }
+});
+
+
+test("security-only edits cannot refresh or reorder old code completion", () => {
+  const head = '2667f79cd7676ff331730cabf661d38dbbcddb0d';
+  const user = { login: 'chatgpt-codex-connector[bot]' };
+  const request = { agent: 'codex', sha: head, requestedAt: '2026-10-15T01:00:00Z' };
+  const dated = (body, updated_at) => ({ user, body, created_at: '2026-10-15T00:00:00Z', updated_at });
+  const codeAt = (time) => summary().replace(/datetime="[^"]+">[^<]+<\/relative-time>/g, `datetime="${time}">${time}</relative-time>`);
+  const unknown = dated(`<!-- codex-review-receipt:v1 -->\nCodex Review: Didn't find any major issues. Needs work.\n\n**Reviewed commit:** \`${head}\``, '2026-10-15T02:30:00Z');
+  const edited = dated(codeAt('2026-10-15T02:00:00Z'), '2026-10-15T03:00:00Z');
+  assert.equal(selectSummary([unknown, edited], head, request), 'pending');
+  const sameSecond = dated(codeAt('2026-10-15T02:30:00.070Z'), '2026-10-15T03:00:00Z');
+  assert.equal(selectSummary([unknown, sameSecond], head, request), 'pending');
+  assert.notEqual(classifyReceipt(dated(codeAt('2026-10-15T01:00:00.070Z'), '2026-10-15T03:00:00Z'), head, request), 'pass');
+  assert.notEqual(classifyReceipt(dated(codeAt('2026-10-15T01:00:00Z'), '2026-10-15T03:00:00Z'), head, request), 'pass');
+  assert.notEqual(classifyReceipt(dated(codeAt('2026-10-15T00:30:00Z'), '2026-10-15T03:00:00Z'), head, request), 'pass');
+  assert.notEqual(classifyReceipt(dated(codeAt('2026-10-15T04:00:00Z'), '2026-10-15T03:00:00Z'), head, request), 'pass');
+  assert.equal(selectSummary([unknown, dated(codeAt('2026-10-15T02:45:00Z'), '2026-10-15T03:00:00Z')], head, request), 'pass');
+  assert.notEqual(classifyReceipt(dated(codeAt('2026-10-15T02:00:00Z').replace(/<relative-time[^>]+>[^<]+<\/relative-time>/, ''), '2026-10-15T03:00:00Z'), head, request), 'pass');
+});
+
+
+test('editing a static clean receipt cannot renew or reorder its approval', () => {
+  const positive = comment(receipt, { created_at: '2026-10-15T10:01:00Z', updated_at: '2026-10-15T10:03:00Z' });
+  const pending = comment(summary({ status: 'in_progress' }), { created_at: '2026-10-15T10:02:00Z', updated_at: '2026-10-15T10:02:00Z' });
+  assert.equal(latestCodexCommentResult([positive, pending], sha, marker), 'pending');
+  assert.notEqual(latestCodexCommentResult([comment(receipt, { created_at: '2026-10-15T09:00:00Z', updated_at: '2026-10-15T10:03:00Z' })], sha, marker), 'pass');
+});
+
+
+test('new review requests can supersede historical prose failures and stale positive edits', () => {
+  const oldFailure = comment('Codex Review: Found issues.', { created_at: '2026-10-15T09:00:00Z', updated_at: '2026-10-15T09:00:00Z' });
+  const stale = comment(receipt, { created_at: '2026-10-15T09:00:00Z', updated_at: '2026-10-15T10:03:00Z' });
+  const fresh = comment(receipt, { created_at: '2026-10-15T10:02:00Z', updated_at: '2026-10-15T10:02:00Z' });
+  assert.equal(latestCodexCommentResult([oldFailure, fresh], sha, marker), 'pass');
+  assert.equal(latestCodexCommentResult([stale, fresh], sha, marker), 'pass');
+});
+
+
+test('formal review ordering uses code completion rather than security edit time', () => {
+  const oldCode = comment(summary(), { created_at: '2026-10-15T10:01:00Z', updated_at: '2026-10-15T10:05:00Z' });
+  const unknown = comment(receipt.replace(' :rocket:', ' Needs work.'), { created_at: '2026-10-15T10:03:00Z', updated_at: '2026-10-15T10:03:00Z' });
+  const result = gate({ body: oldCode.body, comments: [oldCode, unknown], formal: true, formalSubmittedAt: '2026-10-15T10:04:00Z' });
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+});
+
+
+test('stale clean legacy edit cannot overtake current approval', () => {
+  const stale = comment("Codex Review: Didn't find any major issues.", { created_at: '2026-10-15T09:00:00Z', updated_at: '2026-10-15T10:03:00Z' });
+  const fresh = comment(receipt, { created_at: '2026-10-15T10:02:00Z', updated_at: '2026-10-15T10:02:00Z' });
+  assert.equal(latestCodexCommentResult([stale, fresh], sha, marker), 'pass');
+  const result = gate({ body: fresh.body, comments: [stale] });
+  assert.equal(result.status, 0, result.stdout + result.stderr);
 });
