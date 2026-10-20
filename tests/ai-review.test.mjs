@@ -16,10 +16,10 @@ function summary(code = {}, security = {}) {
   return '<!-- codex-pull-request-review-summary -->\n<!-- codex-review-state:v1 ' + JSON.stringify({
     code_review: { commit_sha: sha, has_any_findings: false, has_unresolved_findings: false, status: 'completed', ...code },
     security_review: { commit_sha: null, has_any_findings: null, has_unresolved_findings: null, status: null, ...security }
-  }) + ' -->\n\n## Codex Review Summary\n\n| Review | Status | Commit | Review trigger |\n| 📝 **Code Review** | ✅ **Completed** | `2667f79` | Manual request |';
+  }) + ' -->\n\n## Codex Review Summary\n\n| Review | Status | Commit | Review trigger |\n| 📝 **Code Review** | ✅ **Completed** <relative-time datetime="2026-10-15T10:01:00Z">2026-10-15T10:01:00Z</relative-time> | `2667f79` | Manual request |';
 }
 test('observed receipt, legacy and informational footer pass', () => {
-  assert.equal(accepts(comment(observed.summary), sha, marker), true);
+  assert.equal(accepts(comment(observed.summary, { updated_at: "2026-10-15T21:49:23Z" }), sha, marker), true);
   for (const body of [legacy, receipt, receipt.replace(':rocket:', 'Keep it up!'), legacy + '\n<details> <summary>ℹ️ About Codex in GitHub</summary>\nInformation\n</details>']) assert.equal(accepts(comment(body), sha, marker), true);
   const noSha = comment("Codex Review: Didn't find any major issues.");
   assert.equal(accepts(noSha, sha, marker), true); assert.equal(accepts(noSha, sha), false);
@@ -32,7 +32,7 @@ test('receipt rejects wrong/missing/ambiguous SHA, spoofing, malformed markers a
 test('structured summary requires exact schema, full SHA, explicit verdict, completed state and matching row', () => {
   assert.equal(accepts(comment(summary()), sha, marker), true);
   for (const code of [{ commit_sha: sha.slice(0, 10) }, { commit_sha: 'a'.repeat(40) }, { commit_sha: null }, { status: 'in_progress' }, { status: 'failed' }, { status: null }, { has_any_findings: 'false' }, { has_any_findings: null }, { has_any_findings: true }, { has_unresolved_findings: true }, { extra: false }]) assert.equal(accepts(comment(summary(code)), sha, marker), false, JSON.stringify(code));
-  for (const body of [summary().replace('"has_any_findings":false', '"has_any_findings":true,"has_any_findings":false'), summary().replace('"code_review":', '"other":'), summary().replace('"completed"', 'completed'), summary() + '\n<!-- codex-review-state:v1 {} -->', summary().replace('**Completed**', '**Running**'), summary().replace('`2667f79`', '`aaaaaaa`'), summary() + '\n[P1] Defect', summary() + '\n| Unexpected | Found major issues |', summary() + '\nFound unresolved issues.', summary().replace('**Completed** |', '**Completed** Failed |'), summary() + '\n<!-- codex-review-receipt:v1 -->']) assert.equal(accepts(comment(body), sha, marker), false, body);
+  for (const body of [summary().replace('"has_any_findings":false', '"has_any_findings":true,"has_any_findings":false'), summary().replace('"code_review":', '"other":'), summary().replace('"completed"', 'completed'), summary() + '\n<!-- codex-review-state:v1 {} -->', summary().replace('**Completed**', '**Running**'), summary().replace('`2667f79`', '`aaaaaaa`'), summary() + '\n[P1] Defect', summary() + '\n| Unexpected | Found major issues |', summary() + '\nFound unresolved issues.', summary().replace('**Completed**', '**Completed** Failed'), summary() + '\n<!-- codex-review-receipt:v1 -->']) assert.equal(accepts(comment(body), sha, marker), false, body);
   assert.equal(accepts(comment(summary({}, { has_any_findings: 'false' })), sha, marker), false);
   assert.equal(accepts(comment(summary({}, { commit_sha: [sha], has_any_findings: false, has_unresolved_findings: false, status: 'completed' })), sha, marker), false);
 });
@@ -303,11 +303,11 @@ test("unseen closings require an authoritative later structured verdict", () => 
     'May your coffee stay warm.', 'Authentication leaks credentials.', 'The deployment deletes all customer data.']) {
     const unknown = make(`<!-- codex-review-receipt:v1 -->\nCodex Review: Didn't find any major issues. ${closing}\n\n**Reviewed commit:** \`${head}\``);
     assert.notEqual(classifyReceipt(unknown, head, request), 'pass', closing);
-    const clean = make(summary(), '2026-10-15T03:00:00Z');
+    const clean = make(summary().replaceAll('2026-10-15T10:01:00Z', '2026-10-15T03:00:00Z').replaceAll('2026-10-15T02:00:00Z', '2026-10-15T03:00:00Z'), '2026-10-15T03:00:00Z');
     assert.equal(selectSummary([unknown, clean], head, request), 'pass');
     assert.notEqual(selectSummary([clean, { ...unknown, updated_at: '2026-10-15T04:00:00Z' }], head, request), 'pass');
   }
-  const clean = make(summary(), '2026-10-15T03:00:00Z');
+  const clean = make(summary().replaceAll('2026-10-15T10:01:00Z', '2026-10-15T03:00:00Z').replaceAll('2026-10-15T02:00:00Z', '2026-10-15T03:00:00Z'), '2026-10-15T03:00:00Z');
   for (const invalid of [
     summary({ status: 'in_progress' }), summary({ has_any_findings: true }),
     summary({ has_unresolved_findings: true }), summary({ commit_sha: 'a'.repeat(40) }),
@@ -320,11 +320,31 @@ test("unseen closings require an authoritative later structured verdict", () => 
 
 test('actual gate requires newer structured authority and rejects late invalidation', () => {
   const unknown = receipt.replace(':rocket:', 'Swish!');
-  for (const fixture of [{ body: unknown, extraBodies: [summary()] }]) {
+  for (const fixture of [{ body: unknown, extraBodies: [summary().replaceAll('2026-10-15T10:01:00Z', '2026-10-15T10:03:00Z')] }]) {
     const result = gate(fixture); assert.equal(result.status, 0, result.stderr);
   }
   for (const body of [unknown, summary({ status: 'in_progress' }), summary({ has_any_findings: true }),
     summary({}, { commit_sha: sha, has_any_findings: false, has_unresolved_findings: false, status: 'running' })]) {
     const result = gate({ body: summary(), extraBodies: [unknown, body] }); assert.equal(result.status, 1, result.stdout);
   }
+});
+
+
+test("security-only edits cannot refresh or reorder old code completion", () => {
+  const head = '2667f79cd7676ff331730cabf661d38dbbcddb0d';
+  const user = { login: 'chatgpt-codex-connector[bot]' };
+  const request = { agent: 'codex', sha: head, requestedAt: '2026-10-15T01:00:00Z' };
+  const dated = (body, updated_at) => ({ user, body, created_at: '2026-10-15T00:00:00Z', updated_at });
+  const codeAt = (time) => summary().replace(/datetime="[^"]+">[^<]+<\/relative-time>/g, `datetime="${time}">${time}</relative-time>`);
+  const unknown = dated(`<!-- codex-review-receipt:v1 -->\nCodex Review: Didn't find any major issues. Needs work.\n\n**Reviewed commit:** \`${head}\``, '2026-10-15T02:30:00Z');
+  const edited = dated(codeAt('2026-10-15T02:00:00Z'), '2026-10-15T03:00:00Z');
+  assert.equal(selectSummary([unknown, edited], head, request), 'pending');
+  const sameSecond = dated(codeAt('2026-10-15T02:30:00.070Z'), '2026-10-15T03:00:00Z');
+  assert.equal(selectSummary([unknown, sameSecond], head, request), 'pending');
+  assert.notEqual(classifyReceipt(dated(codeAt('2026-10-15T01:00:00.070Z'), '2026-10-15T03:00:00Z'), head, request), 'pass');
+  assert.notEqual(classifyReceipt(dated(codeAt('2026-10-15T01:00:00Z'), '2026-10-15T03:00:00Z'), head, request), 'pass');
+  assert.notEqual(classifyReceipt(dated(codeAt('2026-10-15T00:30:00Z'), '2026-10-15T03:00:00Z'), head, request), 'pass');
+  assert.notEqual(classifyReceipt(dated(codeAt('2026-10-15T04:00:00Z'), '2026-10-15T03:00:00Z'), head, request), 'pass');
+  assert.equal(selectSummary([unknown, dated(codeAt('2026-10-15T02:45:00Z'), '2026-10-15T03:00:00Z')], head, request), 'pass');
+  assert.notEqual(classifyReceipt(dated(codeAt('2026-10-15T02:00:00Z').replace(/<relative-time[^>]+>[^<]+<\/relative-time>/, ''), '2026-10-15T03:00:00Z'), head, request), 'pass');
 });

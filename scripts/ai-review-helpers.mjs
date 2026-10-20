@@ -133,6 +133,21 @@ export function extractCodexPriority(body) {
 }
 
 
+
+function codeCompletionTime(comment) {
+  const rows = String(comment?.body || "").split(/\r?\n/).filter((line) => line.startsWith("|") && line.includes("**Code Review**"));
+  if (rows.length !== 1) return null;
+  const match = rows[0].match(/\| ✅ \*\*Completed\*\* <relative-time datetime="([^"]+)">([^<]+)<\/relative-time> \|/);
+  const value = match && match[1] === match[2] ? Date.parse(match[1]) : NaN;
+  const edited = Date.parse(comment?.updated_at || comment?.created_at || "");
+  return Number.isFinite(value) && Number.isFinite(edited) && value <= edited + 999 ? match[1] : null;
+}
+
+function verdictTime(comment, result) {
+  return result === "pass" && String(comment?.body || "").trim().startsWith(summaryMarker)
+    ? codeCompletionTime(comment) : comment?.updated_at || comment?.created_at;
+}
+
 const receiptMarker = "<!-- codex-review-receipt:v1 -->";
 const summaryMarker = "<!-- codex-pull-request-review-summary -->";
 
@@ -147,7 +162,7 @@ function exactlyKeys(value, keys) {
     Object.keys(value).sort().join(",") === [...keys].sort().join(",");
 }
 
-function parseStructuredCodexSummary(body, headSha) {
+function parseStructuredCodexSummary(body, headSha, requestMarker) {
   const match = body.match(/^<!-- codex-pull-request-review-summary -->\s*<!-- codex-review-state:v1 (.*?) -->\s*## Codex Review Summary(?:\n|$)/s);
   if (!match || (body.match(/codex-pull-request-review-summary/g) || []).length !== 1 ||
       (body.match(/codex-review-state:/g) || []).length !== 1 || body.includes("codex-review-receipt:")) return null;
@@ -177,9 +192,11 @@ function parseStructuredCodexSummary(body, headSha) {
   const rows = body.split("\n").filter((line) => line.startsWith("|") && line.includes("**Code Review**"));
   if (rows.length !== 1) return null;
   const cells = rows[0].split("|").map((cell) => cell.trim());
-  if (cells.length !== 6 ||
-      !/^✅ \*\*Completed\*\*(?: <relative-time datetime="[^"]+">[^<]+<\/relative-time>)?$/.test(cells[2]) ||
-      cells[3] !== `\`${headSha.slice(0, 7)}\``) return null;
+  const completed = cells[2]?.match(/^✅ \*\*Completed\*\* <relative-time datetime="([^"]+)">([^<]+)<\/relative-time>$/);
+  const requestedAt = Date.parse(requestMarker?.sourceCommentCreatedAt || requestMarker?.requestedAt || requestMarker?.commentCreatedAt || "");
+  if (cells.length !== 6 || !completed || completed[1] !== completed[2] ||
+      !Number.isFinite(requestedAt) || !Number.isFinite(Date.parse(completed[1])) ||
+      Math.floor(Date.parse(completed[1]) / 1000) <= Math.floor(requestedAt / 1000) || cells[3] !== `\`${headSha.slice(0, 7)}\``) return null;
   const securityRows = body.split("\n").filter((line) => line.startsWith("|") && line.includes("**Security Review**"));
   if (securityRows.length !== (securityAbsent ? 0 : 1)) return null;
   if (securityRows.length) {
@@ -205,7 +222,10 @@ export function classifyCodexSummaryComment(comment, headSha, requestMarker = nu
   const body = String(comment?.body || "").trim();
   if (!/^[a-f0-9]{40}$/.test(headSha || "") ||
       !isTrustedReviewLogin(comment?.user?.login, "codex", config) || !isCodexReviewSignal(body)) return null;
-  if (body.startsWith(summaryMarker)) return parseStructuredCodexSummary(body, headSha);
+  if (body.startsWith(summaryMarker)) {
+    const result = parseStructuredCodexSummary(body, headSha, requestMarker);
+    return result === "pass" && !codeCompletionTime(comment) ? null : result;
+  }
 
   const receipt = body.startsWith(receiptMarker);
   if ((body.match(/codex-review-receipt:/g) || []).length !== (receipt ? 1 : 0) ||
@@ -236,12 +256,13 @@ export function latestCodexCommentResult(comments, headSha, requestMarker, confi
   const candidates = comments.filter((comment) =>
     isTrustedReviewLogin(comment?.user?.login, "codex", config) &&
     Date.parse(codexCommentTime(comment) || "") >= requestedAt
-  ).sort((a, b) => Date.parse(codexCommentTime(b)) - Date.parse(codexCommentTime(a)) || Number(b.id) - Number(a.id));
+  ).map((comment) => {
+    const result = classifyCodexSummaryComment(comment, headSha, requestMarker, config) || "pending";
+    return { result, time: verdictTime(comment, result) };
+  }).sort((a, b) => Math.floor(Date.parse(b.time) / 1000) - Math.floor(Date.parse(a.time) / 1000));
   if (!candidates.length) return null;
-  // At the same API timestamp, pending/failing evidence wins over a clean receipt.
-  const latestTime = codexCommentTime(candidates[0]);
-  const results = candidates.filter((comment) => codexCommentTime(comment) === latestTime)
-    .map((comment) => classifyCodexSummaryComment(comment, headSha, requestMarker, config) || "pending");
+  const latestTime = candidates[0].time;
+  const results = candidates.filter((entry) => Math.floor(Date.parse(entry.time) / 1000) === Math.floor(Date.parse(latestTime) / 1000)).map((entry) => entry.result);
   return results.includes("fail") ? "fail" : results.includes("pending") ? "pending" :
     results.includes("resolved_findings") ? "resolved_findings" : "pass";
 }
