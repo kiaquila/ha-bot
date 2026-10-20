@@ -144,8 +144,9 @@ function codeCompletionTime(comment) {
 }
 
 export function verdictTime(comment, result) {
+  const legacyPositive = /^Codex Review:\s*Did(?: not|n't|n’t) find any major issues\.(?: :rocket:| Keep it up!)?\s*(?:<details>[\s\S]*<\/details>)?\s*$/i.test(String(comment?.body || "").trim());
   return result === "pass" && String(comment?.body || "").trim().startsWith(summaryMarker)
-    ? codeCompletionTime(comment) : result === "pass" ? comment?.created_at : comment?.updated_at || comment?.created_at;
+    ? codeCompletionTime(comment) : result === "pass" || legacyPositive ? comment?.created_at : comment?.updated_at || comment?.created_at;
 }
 
 const receiptMarker = "<!-- codex-review-receipt:v1 -->";

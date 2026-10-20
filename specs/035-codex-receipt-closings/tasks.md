@@ -21,3 +21,5 @@ Positive static receipt/legacy evidence uses immutable created_at for freshness 
 Native review follow-up: request-bound historical prose failures, retain immutable positive timestamps before freshness downgrade, and add both regressions. Mandatory preflight passed with 26 Node tests. Native findings and unresolved threads retain their veto.
 
 Native gate-ordering follow-up: formal-review comparisons use outcome-aware comment verdict timestamps, with conservative second buckets, so security-only edits cannot reorder code approval. Added spawned actual-gate regression. Mandatory preflight passed with 27 Node tests.
+
+Native legacy follow-up: recognize strict clean legacy presentation before request-freshness downgrade so stale edits retain creation ordering. Helper and spawned actual-gate regressions added. Mandatory preflight passed with 28 Node tests.
