@@ -208,14 +208,14 @@ function parseStructuredCodexSummary(body, headSha, requestMarker) {
   const cells = rows[0].split("|").map((cell) => cell.trim());
   const completed = cells[2]?.match(/^✅ \*\*Completed\*\* <relative-time datetime="([^"]+)">([^<]+)<\/relative-time>$/);
   const requestedAt = Date.parse(requestMarker?.sourceCommentCreatedAt || requestMarker?.requestedAt || requestMarker?.commentCreatedAt || "");
-  if (cells.length !== 6 || !completed || completed[1] !== completed[2] ||
+  if (cells.length !== 6 || !["Manual request", "Automatic review"].includes(cells[4]) || !completed || completed[1] !== completed[2] ||
       !Number.isFinite(requestedAt) || !Number.isFinite(Date.parse(completed[1])) ||
       Math.floor(Date.parse(completed[1]) / 1000) <= Math.floor(requestedAt / 1000) || cells[3] !== `\`${headSha.slice(0, 7)}\``) return null;
   const securityRows = body.split("\n").filter((line) => line.startsWith("|") && line.includes("**Security Review**"));
   if (securityRows.length !== (securityAbsent ? 0 : 1)) return null;
   if (securityRows.length) {
     const cells = securityRows[0].split("|").map((cell) => cell.trim());
-    if (cells.length !== 6 ||
+    if (cells.length !== 6 || !["Manual request", "Automatic review"].includes(cells[4]) ||
         !/^✅ \*\*Completed\*\*(?: <relative-time datetime="[^"]+">[^<]+<\/relative-time>)?$/.test(cells[2]) ||
         cells[3] !== `\`${headSha.slice(0, 7)}\``) return null;
   }
@@ -266,17 +266,20 @@ export function isAcceptableCodexSummaryComment(comment, headSha, requestMarker 
 
 export function latestCodexCommentResult(comments, headSha, requestMarker, config = {}) {
   const requestedAt = Date.parse(requestMarker?.sourceCommentCreatedAt || requestMarker?.requestedAt || "");
+  const isResolvedTypedFinding = (comment) => {
+    const state = typedCodexState(comment);
+    return state && validFindingCompanions(comment, state, headSha, config, true) &&
+      Object.values(state).some((review) => review.commit_sha === headSha &&
+        (review.has_any_findings || review.has_unresolved_findings)) &&
+      !hasUnclearedStructuredFindings(comments, headSha, requestMarker, config);
+  };
   if (comments.some((comment) => Date.parse(codexCommentTime(comment) || "") >= requestedAt && classifyCodexSummaryComment(comment, headSha, requestMarker, config) === "fail" &&
-    /\bP[0-2]\b|found (?:some |major |any )?(?:issues|findings)|unresolved (?:issues|findings)|changes requested/i.test(comment.body || ""))) return "fail";
+    !isResolvedTypedFinding(comment) && /\bP[0-2]\b|found (?:some |major |any )?(?:issues|findings)|unresolved (?:issues|findings)|changes requested/i.test(comment.body || ""))) return "fail";
   const candidates = comments.filter((comment) =>
     isTrustedReviewLogin(comment?.user?.login, "codex", config) &&
     Date.parse(codexCommentTime(comment) || "") >= requestedAt
   ).map((comment) => {
-    const state = typedCodexState(comment);
-    if (state && validFindingCompanions(comment, state, headSha, config, true) &&
-        Object.values(state).some((review) => review.commit_sha === headSha &&
-        (review.has_any_findings || review.has_unresolved_findings)) &&
-        !hasUnclearedStructuredFindings(comments, headSha, requestMarker, config)) return null;
+    if (isResolvedTypedFinding(comment)) return null;
     let result = classifyCodexSummaryComment(comment, headSha, requestMarker, config) || "pending";
     const time = verdictTime(comment, result, headSha, config);
     if (result === "pass" && Date.parse(time || "") < requestedAt) result = "pending";
@@ -462,7 +465,9 @@ function validFindingCompanions(comment, state, headSha, config = {}, allowResol
 
 function hasIndentedCodexEnvelope(body) {
   const leading = String(body || "").replace(/\uFEFF/g, "").match(/^(?:[ \t\r\n]*<!--[\s\S]*?-->)*[ \t\r\n]*/)?.[0] || "";
-  return /^(?: {4,}|[ \t]*\t[ \t]*)<!-- codex-/im.test(leading);
+  const heading = String(body || "").split(/\r?\n/).find((line) => /^[ \t]*## Codex Review Summary(?:\s|$)/.test(line));
+  return /^(?: {4,}|[ \t]*\t[ \t]*)<!-- codex-/im.test(leading) ||
+    /^(?: {4,}|[ \t]*\t)/.test(heading || "");
 }
 
 function removableCompanionRow(comment, review, kind, row) {

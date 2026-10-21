@@ -581,3 +581,20 @@ test('leading metadata cannot hide a newer malformed protocol observation', () =
   const malformed = comment('<!-- TODO -->\n<!-- codex-review-state:v1 broken -->', { created_at: '2026-10-15T10:05:00Z', updated_at: '2026-10-15T10:05:00Z' });
   assert.notEqual(gate({ body: '', comments: [comment(receipt), malformed] }).status, 0);
 });
+
+
+test('canonical newer clear resolves post-request typed finding prose only', () => {
+  const clean = comment(summary().replaceAll(after, '2026-10-15T10:03:00Z'), { created_at: '2026-10-15T10:03:00Z', updated_at: '2026-10-15T10:03:00Z' });
+  for (const prose of ['P1: defect', 'Found issues.']) {
+    const typed = comment(summary({ has_any_findings: true }) + '\n' + prose);
+    assert.equal(gate({ body: '', comments: [typed, clean] }).status, 0);
+    assert.notEqual(gate({ body: '', comments: [comment(receipt + '\n' + prose), clean] }).status, 0);
+    assert.notEqual(gate({ body: '', comments: [typed, comment(summary())] }).status, 0);
+  }
+});
+
+
+test('code-indented heading and formatted warning triggers cannot approve', () => {
+  for (const prefix of ['    ', '\t']) assert.equal(accepts(comment(summary().replace('## Codex Review Summary', prefix + '## Codex Review Summary')), sha, marker), false);
+  for (const trigger of ['Do **not** merge', 'Do not&nbsp;merge']) assert.equal(accepts(comment(summary().replace('Manual request', trigger)), sha, marker), false);
+});

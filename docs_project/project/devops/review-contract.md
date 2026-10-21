@@ -134,3 +134,5 @@ Completed typed negative observations use their own strict canonical section clo
 Malformed completed companions retain a separate observation-time invalidation even after an old finding is resolved. Each companion row is checked against its own typed SHA; a matching foreign-head completed companion remains valid. Paired actual gate controls and mandatory preflight passed: 58 Python, 40 Node tests.
 
 Typed authority is bound to the active full head and preserves configured trusted actors. Finding-bearing foreign companions require their own canonical rows. Four-space/tab-indented protocol markers supply no typed authority; one-to-three-space HTML formatting remains supported. Case-varied Codex markers remain protocol comments and cannot be erased as unrelated HTML. Final mandatory preflight passed: 58 Python, 43 Node tests.
+
+A strictly newer canonical same-section completion retires ordinary prose belonging to the resolved typed finding; raw negative prose and native unresolved findings retain their veto. Four-space/tab-indented summary headings are code examples, and visible review triggers must match the canonical request labels.
