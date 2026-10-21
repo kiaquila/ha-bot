@@ -144,12 +144,14 @@ function codeCompletionTime(comment) {
 }
 
 export function verdictTime(comment, result) {
-  if (result === "fail") {
+  {
     const state = typedCodexState(comment);
     if (state && Object.values(state).every((review) => review.status === null || review.status === "completed")) {
       const clocks = ["code_review", "security_review"].filter((kind) =>
         state[kind].has_any_findings === true || state[kind].has_unresolved_findings === true
-      ).map((kind) => state[kind].status === "completed" ? sectionCompletionBucket(comment, kind, state[kind].commit_sha) : NaN);
+      ).map((kind) => state[kind].status === "completed" && canonicalSectionClear(comment,
+        { ...state, [kind]: { ...state[kind], has_any_findings: false, has_unresolved_findings: false } },
+        kind, state[kind].commit_sha, {}) ? sectionCompletionBucket(comment, kind, state[kind].commit_sha) : NaN);
       if (clocks.length && clocks.every(Number.isFinite)) return new Date(Math.max(...clocks) * 1000).toISOString();
     }
   }
@@ -268,11 +270,16 @@ export function latestCodexCommentResult(comments, headSha, requestMarker, confi
     isTrustedReviewLogin(comment?.user?.login, "codex", config) &&
     Date.parse(codexCommentTime(comment) || "") >= requestedAt
   ).map((comment) => {
+    const state = typedCodexState(comment);
+    if (state && Object.values(state).every((review) => review.status === null || review.status === "completed") &&
+        Object.values(state).some((review) => review.commit_sha === headSha &&
+        (review.has_any_findings || review.has_unresolved_findings)) &&
+        !hasUnclearedStructuredFindings(comments, headSha, requestMarker, config)) return null;
     let result = classifyCodexSummaryComment(comment, headSha, requestMarker, config) || "pending";
     const time = verdictTime(comment, result);
     if (result === "pass" && Date.parse(time || "") < requestedAt) result = "pending";
     return { result, time };
-  }).sort((a, b) => Math.floor(Date.parse(b.time) / 1000) - Math.floor(Date.parse(a.time) / 1000));
+  }).filter(Boolean).sort((a, b) => Math.floor(Date.parse(b.time) / 1000) - Math.floor(Date.parse(a.time) / 1000));
   if (!candidates.length) return null;
   const latestTime = candidates[0].time;
   const results = candidates.filter((entry) => Math.floor(Date.parse(entry.time) / 1000) === Math.floor(Date.parse(latestTime) / 1000)).map((entry) => entry.result);
@@ -355,7 +362,7 @@ export function isAcceptableClaudeComment(comment, headSha, config = {}) {
 
 
 function typedCodexState(comment) {
-  const body = String(comment?.body || "").trim();
+  const body = String(comment?.body || "").trim().replace(/<!--(?! codex-)[\s\S]*?-->/g, "").trim();
   const match = body.match(/^<!-- codex-pull-request-review-summary -->\s*<!-- codex-review-state:v1 (.*?) -->\s*## Codex Review Summary(?:\n|$)/s);
   if (!match || (body.match(/<!-- codex-/g) || []).length !== 2) return null;
   let state;

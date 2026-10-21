@@ -128,3 +128,5 @@ Completed typed negatives retain their affected section's valid canonical comple
 Historical canonical resolution is independent of later request markers: a repeated request cannot revive an already cleared finding. Current code approval still requires fresh evidence after the active request.
 
 Canonical finding clocks require the visible section commit to match the typed full head; mismatches fall back to observation time. Native P1 regression and mandatory preflight passed (58 Python, 36 Node tests).
+
+Completed typed negative observations use their own strict canonical section clock independently of classifier outcome. Historical extraction accepts multiline JSON and unrelated HTML comments while rejecting duplicate protocol markers/schema. Once a strictly newer section completion clears a finding, its old malformed rendering cannot retain a veto; running-section observations remain active. Final mandatory preflight passed: 58 Python, 39 Node tests; independent bounded review cleared.

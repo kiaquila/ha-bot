@@ -453,3 +453,32 @@ test('mismatched visible finding head cannot lend an old clearance clock', () =>
   const clean = comment(summary().replaceAll('2026-10-15T10:01:00Z', '2026-10-15T10:04:00Z'), { created_at: '2026-10-15T10:04:00Z', updated_at: '2026-10-15T10:04:00Z' });
   assert.notEqual(gate({ body: '', comments: [old, clean] }).status, 0);
 });
+
+
+test('security-only completed finding keeps its canonical clock after clearance', () => {
+  const absent = { commit_sha: null, status: null, has_any_findings: null, has_unresolved_findings: null };
+  const sec = { commit_sha: sha, status: 'completed', has_any_findings: false, has_unresolved_findings: false };
+  const row = (time) => '\n| 🔒 **Security Review** | ✅ **Completed** <relative-time datetime="' + time + '">' + time + '</relative-time> | `' + sha.slice(0, 7) + '` | Manual request |';
+  const old = comment(summary(absent, { ...sec, has_any_findings: true }).replace(/\n\| 📝[^\n]*/, '') + row('2026-10-15T09:00:00Z'), { created_at: '2026-10-15T09:00:00Z', updated_at: '2026-10-15T10:05:00Z' });
+  const clear = comment(summary({}, sec) + row('2026-10-15T10:01:00Z'));
+  assert.equal(gate({ body: '', comments: [old, clear], formal: true }).status, 0);
+});
+
+
+test('historical typed findings survive multiline JSON and unrelated HTML comments', () => {
+  const body = summary({ has_any_findings: true });
+  const multiline = body.replace(/(<!-- codex-review-state:v1 )(.*?)( -->)/, (_, prefix, json, suffix) => prefix + JSON.stringify(JSON.parse(json), null, 2) + suffix);
+  for (const variant of [multiline, body.replace('<!-- codex-review-state:', '<!-- TODO -->\n<!-- codex-review-state:')]) {
+    const old = comment(variant.replaceAll('2026-10-15T10:01:00Z', '2026-10-15T09:00:00Z'), { created_at: '2026-10-15T09:00:00Z', updated_at: '2026-10-15T09:00:00Z' });
+    assert.notEqual(gate({ body: '', comments: [old], formal: true }).status, 0);
+  }
+});
+
+
+test('canonical later security clear retires mismatched finding rendering', () => {
+  const sec = { commit_sha: sha, status: 'completed', has_any_findings: false, has_unresolved_findings: false };
+  const row = (time, short = sha.slice(0, 7)) => '\n| 🔒 **Security Review** | ✅ **Completed** <relative-time datetime="' + time + '">' + time + '</relative-time> | `' + short + '` | Manual request |';
+  const old = comment(summary({}, { ...sec, has_any_findings: true }) + row('2026-10-15T10:01:00Z', 'aaaaaaa'), { updated_at: '2026-10-15T10:02:00Z' });
+  const clear = comment(summary({}, sec).replaceAll('2026-10-15T10:01:00Z', '2026-10-15T10:01:30Z') + row('2026-10-15T10:03:00Z'), { updated_at: '2026-10-15T10:03:00Z' });
+  const outcome = gate({ body: '', comments: [old, clear] }); assert.equal(outcome.status, 0, outcome.stdout + outcome.stderr);
+});
