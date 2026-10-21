@@ -21,3 +21,5 @@ Typed authority is bound to the active full head and preserves configured truste
 Official marker discovery is case-insensitive. Indented protocol examples in later finding presentation do not erase genuine leading evidence. Partial resolution validates any visible counterpart row before removing it, including inactive-section warnings; canonical Running rows remain supported. Mandatory preflight passed: 58 Python, 44 Node tests; independent bounded A/B/C review cleared.
 
 Companion projection requires exact canonical first-cell review labels; warning text cannot be erased with an otherwise canonical Running row. BOM-prefixed indented envelopes remain Markdown examples. Actual evaluator/gate paired controls pass; mandatory preflight validation recorded on the final head.
+
+Native negative-presentation follow-up: genuine leading typed findings survive trailing quoted/fenced examples and bare markers. Duplicate markers within the leading envelope and whole quoted/fenced envelopes remain non-authoritative. Approval and clearing still require the original full body. Actual gate/evaluator paired regressions and independent bounded review passed.

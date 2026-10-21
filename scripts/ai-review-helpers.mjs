@@ -383,9 +383,18 @@ function typedCodexState(comment) {
   return state;
 }
 
+// Negative facts belong to the canonical leading envelope. Later finding
+// presentation cannot erase them; approval and resolution still parse the full body.
+function leadingNegativeState(comment) {
+  if (hasIndentedCodexEnvelope(comment?.body)) return null;
+  const body = String(comment?.body || "").trim().replace(/<!--(?! codex-)[\s\S]*?-->/gi, "").trim();
+  const match = body.match(/^<!-- codex-pull-request-review-summary -->\s*<!-- codex-review-state:v1 .*? -->\s*## Codex Review Summary(?:\r?\n|$)/s);
+  return match ? typedCodexState({ ...comment, body: match[0] }) : null;
+}
+
 export function hasUnclearedStructuredFindings(comments, headSha, requestMarker, config = {}) {
   const evidence = comments.filter((comment) => isTrustedReviewLogin(comment.user?.login, "codex", config))
-    .map((comment) => ({ comment, state: typedCodexState(comment) })).filter((entry) => entry.state);
+    .map((comment) => ({ comment, state: leadingNegativeState(comment) })).filter((entry) => entry.state);
   return evidence.some(({ comment, state }) => ["code_review", "security_review"].some((kind) => {
     const review = state[kind];
     if (review.commit_sha !== headSha || !(review.has_any_findings || review.has_unresolved_findings)) return false;

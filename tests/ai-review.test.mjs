@@ -549,3 +549,16 @@ test('protocol discovery and partial projection preserve pending and genuine fin
   const warningLabel = { ...canonical, body: canonical.body.replace('🔒 **Security Review**', '⚠️ Do not merge 🔒 **Security Review**') };
   assert.notEqual(gate({ body: '', comments: [comment(oldBody, { created_at: '2026-10-15T08:00:00Z' }), warningLabel], formal: true }).status, 0);
 });
+
+
+test('leading typed findings survive trailing presentation without authorizing examples', () => {
+  const time = '2026-10-15T08:00:00Z';
+  const negative = summary({ has_any_findings: true }).replaceAll(after, time);
+  for (const tail of ['\n> ```html\n> <!-- codex-review-state:v1 {} -->\n> ```', '\n<!-- codex-review-state:v1 {} -->']) {
+    assert.notEqual(gate({ body: '', comments: [comment(negative + tail, { created_at: time, updated_at: time })], formal: true }).status, 0);
+    assert.equal(accepts(comment(summary() + tail), sha, marker), false);
+  }
+  for (const body of ['```html\n' + negative + '\n```', negative.split('\n').map(line => '> ' + line).join('\n'), negative.replace('## Codex Review Summary', '<!-- codex-review-state:v1 {} -->\n## Codex Review Summary')]) {
+    assert.equal(gate({ body: '', comments: [comment(body, { created_at: time, updated_at: time })], formal: true }).status, 0);
+  }
+});
