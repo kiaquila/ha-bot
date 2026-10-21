@@ -482,3 +482,14 @@ test('canonical later security clear retires mismatched finding rendering', () =
   const clear = comment(summary({}, sec).replaceAll('2026-10-15T10:01:00Z', '2026-10-15T10:01:30Z') + row('2026-10-15T10:03:00Z'), { updated_at: '2026-10-15T10:03:00Z' });
   const outcome = gate({ body: '', comments: [old, clear] }); assert.equal(outcome.status, 0, outcome.stdout + outcome.stderr);
 });
+
+
+test('invalid completed companion retains newer observation after finding resolution', () => {
+  const sec = { commit_sha: 'a'.repeat(40), status: 'completed', has_any_findings: false, has_unresolved_findings: false };
+  const row = '\n| 🔒 **Security Review** | ✅ **Completed** <relative-time datetime="2026-10-15T10:05:00Z">2026-10-15T10:05:00Z</relative-time> | `2667f79` | Manual request |';
+  const old = comment(summary({ has_any_findings: true }, sec).replaceAll('2026-10-15T10:01:00Z', '2026-10-15T09:00:00Z') + row, { created_at: '2026-10-15T09:00:00Z', updated_at: '2026-10-15T10:05:00Z' });
+  const clear = comment(summary().replaceAll('2026-10-15T10:01:00Z', '2026-10-15T10:04:00Z'), { updated_at: '2026-10-15T10:04:00Z' });
+  assert.notEqual(gate({ body: '', comments: [old, clear] }).status, 0);
+  const valid = { ...old, body: old.body.replace(row, row.replace('`2667f79`', '`aaaaaaa`')) };
+  assert.equal(gate({ body: '', comments: [valid, clear] }).status, 0);
+});

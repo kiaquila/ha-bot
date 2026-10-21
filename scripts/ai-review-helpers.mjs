@@ -146,7 +146,7 @@ function codeCompletionTime(comment) {
 export function verdictTime(comment, result) {
   {
     const state = typedCodexState(comment);
-    if (state && Object.values(state).every((review) => review.status === null || review.status === "completed")) {
+    if (state && validFindingCompanions(comment, state, Object.values(state).find((review) => review.has_any_findings || review.has_unresolved_findings)?.commit_sha)) {
       const clocks = ["code_review", "security_review"].filter((kind) =>
         state[kind].has_any_findings === true || state[kind].has_unresolved_findings === true
       ).map((kind) => state[kind].status === "completed" && canonicalSectionClear(comment,
@@ -271,7 +271,7 @@ export function latestCodexCommentResult(comments, headSha, requestMarker, confi
     Date.parse(codexCommentTime(comment) || "") >= requestedAt
   ).map((comment) => {
     const state = typedCodexState(comment);
-    if (state && Object.values(state).every((review) => review.status === null || review.status === "completed") &&
+    if (state && validFindingCompanions(comment, state, headSha) &&
         Object.values(state).some((review) => review.commit_sha === headSha &&
         (review.has_any_findings || review.has_unresolved_findings)) &&
         !hasUnclearedStructuredFindings(comments, headSha, requestMarker, config)) return null;
@@ -424,4 +424,17 @@ function canonicalSectionClear(comment, state, kind, headSha, config) {
       ? line.replace(/(?:🛡️|🔒) \*\*Security Review\*\*/, "📝 **Code Review**") : line).join("\n");
   return classifyCodexSummaryComment({ ...comment, body: projected }, headSha,
     { requestedAt: "1970-01-01T00:00:00Z" }, config) === "pass";
+}
+
+
+// A resolved own-section finding cannot erase a newer invalid companion.
+function validFindingCompanions(comment, state, headSha) {
+  return Object.entries(state).every(([kind, review]) => {
+    const title = kind === "security_review" ? "**Security Review**" : "**Code Review**";
+    if (Object.values(review).every((value) => value === null)) return !String(comment.body || "").split(/\r?\n/).some((line) => line.startsWith("|") && line.includes(title));
+    if (review.status !== "completed") return false;
+    if (review.has_any_findings || review.has_unresolved_findings) return true;
+    return review.has_any_findings === false && review.has_unresolved_findings === false &&
+      canonicalSectionClear(comment, state, kind, review.commit_sha, {});
+  });
 }
