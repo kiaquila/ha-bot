@@ -118,11 +118,15 @@ export function latestAiReviewRequestMarker(comments = [], agent, headSha) {
 
 // Project formatting only for visible contradiction checks. Protocol evidence
 // continues to use its original bytes and strict grammar.
+// HTML5 named whitespace/format entities (standard HTML entity names).
+const htmlSpacingEntities = {"ApplyFunction": "\u2061", "InvisibleComma": "\u2063", "InvisibleTimes": "\u2062", "MediumSpace": "\u205f", "NegativeMediumSpace": "\u200b", "NegativeThickSpace": "\u200b", "NegativeThinSpace": "\u200b", "NegativeVeryThinSpace": "\u200b", "NewLine": "\n", "NoBreak": "\u2060", "NonBreakingSpace": "\u00a0", "Tab": "\t", "ThickSpace": "\u205f\u200a", "ThinSpace": "\u2009", "VeryThinSpace": "\u200a", "ZeroWidthSpace": "\u200b", "af": "\u2061", "emsp": "\u2003", "emsp13": "\u2004", "emsp14": "\u2005", "ensp": "\u2002", "hairsp": "\u200a", "ic": "\u2063", "it": "\u2062", "lrm": "\u200e", "nbsp": "\u00a0", "numsp": "\u2007", "puncsp": "\u2008", "rlm": "\u200f", "shy": "\u00ad", "thinsp": "\u2009", "zwj": "\u200d", "zwnj": "\u200c"};
 function visibleReviewText(body) {
   return String(body || "").replace(/&#(x[0-9a-f]+|[0-9]+);/gi, (entity, value) => {
     const point = value[0].toLowerCase() === "x" ? parseInt(value.slice(1), 16) : Number(value);
     return point > 0 && point <= 0x10ffff ? String.fromCodePoint(point) : entity;
-  }).replace(/[*_~`]/g, "").replace(/\s+/g, " ");
+  }).replace(/&([A-Za-z][A-Za-z0-9]*);/g, (entity, name) => htmlSpacingEntities[name] ?? entity)
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1").replace(/<\/?(?:strong|em)\b[^>]*>/gi, "")
+    .replace(/\bdo[\s\p{Cf}]+not[\s\p{Cf}]+merge\b/giu, "Do not merge").replace(/\p{Cf}/gu, "").replace(/[*_~`]/g, "").replace(/\s+/g, " ");
 }
 
 export function containsBlockingSeverity(body, agent) {
@@ -211,8 +215,9 @@ function parseStructuredCodexSummary(body, headSha, requestMarker) {
   if (!securityAbsent && (security.commit_sha !== headSha || security.status !== "completed" ||
       security.has_any_findings !== false || security.has_unresolved_findings !== false)) return "fail";
   if (code.status !== "completed") return "pending";
+  const visible = body.slice(match[0].length).replace(/\s*<details>\s*<summary>[^<]*About Codex in GitHub<\/summary>[\s\S]*<\/details>\s*$/, "");
   // Visible code-review rows must agree with the machine-readable state.
-  const rows = body.split("\n").filter((line) => line.startsWith("|") && line.includes("**Code Review**"));
+  const rows = visible.split("\n").filter((line) => line.startsWith("|") && line.includes("**Code Review**"));
   if (rows.length !== 1) return null;
   const cells = rows[0].split("|").map((cell) => cell.trim());
   const completed = cells[2]?.match(/^✅ \*\*Completed\*\* <relative-time datetime="([^"]+)">([^<]+)<\/relative-time>$/);
@@ -220,7 +225,7 @@ function parseStructuredCodexSummary(body, headSha, requestMarker) {
   if (cells.length !== 6 || !["Manual request", "Automatic review"].includes(cells[4]) || !completed || completed[1] !== completed[2] ||
       !Number.isFinite(requestedAt) || !Number.isFinite(Date.parse(completed[1])) ||
       Math.floor(Date.parse(completed[1]) / 1000) <= Math.floor(requestedAt / 1000) || cells[3] !== `\`${headSha.slice(0, 7)}\``) return null;
-  const securityRows = body.split("\n").filter((line) => line.startsWith("|") && line.includes("**Security Review**"));
+  const securityRows = visible.split("\n").filter((line) => line.startsWith("|") && line.includes("**Security Review**"));
   if (securityRows.length !== (securityAbsent ? 0 : 1)) return null;
   if (securityRows.length) {
     const cells = securityRows[0].split("|").map((cell) => cell.trim());
@@ -228,7 +233,6 @@ function parseStructuredCodexSummary(body, headSha, requestMarker) {
         !/^✅ \*\*Completed\*\*(?: <relative-time datetime="[^"]+">[^<]+<\/relative-time>)?$/.test(cells[2]) ||
         cells[3] !== `\`${headSha.slice(0, 7)}\``) return null;
   }
-  const visible = body.slice(match[0].length).replace(/\s*<details>\s*<summary>[^<]*About Codex in GitHub<\/summary>[\s\S]*<\/details>\s*$/, "");
   if (visible.split("\n").some((line) => line.trim() &&
       line.trim() !== "This comment shows the latest Codex review activity on this pull request." &&
       line.trim() !== "| Review | Status | Commit | Review trigger |" &&
@@ -474,7 +478,7 @@ function validFindingCompanions(comment, state, headSha, config = {}, allowResol
 
 function hasIndentedCodexEnvelope(body) {
   const leading = String(body || "").replace(/\uFEFF/g, "").match(/^(?:[ \t\r\n]*<!--[\s\S]*?-->)*[ \t\r\n]*/)?.[0] || "";
-  const heading = String(body || "").split(/\r?\n/).find((line) => /^[ \t]*## Codex Review Summary(?:\s|$)/.test(line));
+  const heading = String(body || "").replace(/\uFEFF/g, "").replace(/<!--(?! codex-)[^\r\n]*?-->/gi, "").split(/\r?\n/).find((line) => /^[ \t]*## Codex Review Summary(?:\s|$)/.test(line));
   return /^(?: {4,}|[ \t]*\t[ \t]*)<!-- codex-/im.test(leading) ||
     /^(?: {4,}|[ \t]*\t)/.test(heading || "");
 }

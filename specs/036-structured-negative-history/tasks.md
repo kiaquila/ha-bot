@@ -35,3 +35,11 @@ Consolidated actual-native corrections passed mandatory preflight: 58 Python, 47
 16:25 actual rendered-warning counterpart: strict trigger fields already reject encoded warnings, while permitted footer warnings needed visible numeric-entity/inline-format normalization. Exact P&#49;, P*1* and Do&#32;not&#32;merge approval/history-clear regressions pass; typed negative authority unchanged.
 
 16:25 rendered-warning corrections passed mandatory preflight: 58 Python, 50 Node tests; independent bounded reviewer cleared exact footer approval and history-clear cases.
+
+16:38/16:41 actual counterparts: reject code-indented summary headings after BOM or same-line presentation metadata; normalize MediumSpace/hairsp in existing visible warning checks. Hidden or multiline-comment-split completion rows remain unable to approve or clear findings; focused production-path controls cover both.
+
+16:46 actual native counterparts: rendered link-label/inline-HTML/Cf warnings in permitted informational footers remain blocking. Completion rows inside collapsed informational details cannot grant approval or clear history (HA corrected visible-row collection; Nome already rejected). Exact production-path controls cover approval and clearance.
+
+16:51 actual counterparts: use the standard HTML5 whitespace/format entity map without dependencies; zero-width word separators cannot conceal the existing Do not merge warning. Exact ThinSpace/ZeroWidthSpace/numeric-zero-width controls pass. Indent-then-BOM protocol marker remains rejected by the existing raw envelope guard.
+
+16:38–16:51 consolidated actual-native corrections passed mandatory pnpm preflight: 58 Python and 50 Node tests; independent bounded reviewer cleared exact controls.

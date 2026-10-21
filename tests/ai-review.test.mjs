@@ -542,7 +542,7 @@ test('protocol discovery and partial projection preserve pending and genuine fin
   assert.notEqual(gate({ body: '', comments: [comment(oldBody, { created_at: '2026-10-15T08:00:00Z' }), inactiveWarning], formal: true }).status, 0);
   const canonical = { ...invalidClear, body: invalidClear.body.replace('⚠️ Do not merge', '🔄 **Running** since <relative-time datetime="2026-10-15T09:00:00Z">2026-10-15T09:00:00Z</relative-time>') };
   assert.equal(gate({ body: '', comments: [comment(oldBody, { created_at: '2026-10-15T08:00:00Z' }), canonical], formal: true }).status, 0);
-  for (const prefix of ['    ', '\t']) {
+  for (const prefix of ['    ', '\t', '\uFEFF    ', '<!-- presentation metadata -->    ']) {
     const todoClear = { ...canonical, body: summary().replaceAll(after, '2026-10-15T09:00:00Z') + '\n' + prefix + '<!-- TODO -->' };
     assert.notEqual(gate({ body: '', comments: [comment(oldBody, { created_at: '2026-10-15T08:00:00Z' }), todoClear], formal: true }).status, 0);
   }
@@ -595,15 +595,22 @@ test('canonical newer clear resolves post-request typed finding prose only', () 
 
 
 test('code-indented heading and formatted warning triggers cannot approve', () => {
-  for (const prefix of ['    ', '\t']) assert.equal(accepts(comment(summary().replace('## Codex Review Summary', prefix + '## Codex Review Summary')), sha, marker), false);
-  for (const trigger of ['Do **not** merge', 'Do not&nbsp;merge']) assert.equal(accepts(comment(summary().replace('Manual request', trigger)), sha, marker), false);
+  assert.equal(accepts(comment(summary().replace('<!-- codex-pull-request-review-summary -->', '    \uFEFF<!-- codex-pull-request-review-summary -->')), sha, marker), false);
+  for (const body of [summary().replace('| 📝 **Code Review**', '<!--\n| 📝 **Code Review**'), summary().replace('<relative-time', '<!-- presentation\nmetadata --><relative-time')]) assert.equal(accepts(comment(body), sha, marker), false);
+  for (const prefix of ['    ', '\t', '\uFEFF    ', '<!-- presentation metadata -->    ']) assert.equal(accepts(comment(summary().replace('## Codex Review Summary', prefix + '## Codex Review Summary')), sha, marker), false);
+  for (const trigger of ['Do **not** merge', 'Do not&nbsp;merge', 'P&#8203;1 blocker']) assert.equal(accepts(comment(summary().replace('Manual request', trigger)), sha, marker), false);
 });
 
 
 test('rendered footer warnings cannot approve or clear findings', () => {
   const time = '2026-10-15T09:00:00Z';
   const old = comment(summary({ has_any_findings: true }).replaceAll(after, time), { created_at: time, updated_at: time });
-  for (const warning of ['P&#49; blocker', 'P*1* blocker', 'Do&#32;not&#32;merge']) {
+  const row = summary().split('\n').find((line) => line.startsWith('| 📝 **Code Review**'));
+  const collapsed = summary().replace(row, '') + '\n<details> <summary>ℹ️ About Codex in GitHub</summary>\n' + row + '\n</details>';
+  assert.equal(accepts(comment(collapsed), sha, marker), false);
+  assert.notEqual(gate({ body: '', comments: [old, comment(collapsed)], formal: true }).status, 0);
+  for (const body of [summary().replace('| 📝 **Code Review**', '<!--\n| 📝 **Code Review**'), summary().replace('<relative-time', '<!-- presentation\nmetadata --><relative-time')]) assert.notEqual(gate({ body: '', comments: [old, comment(body)], formal: true }).status, 0);
+  for (const warning of ['P&#49; blocker', 'P*1* blocker', 'Do&#32;not&#32;merge', 'Do&MediumSpace;not&MediumSpace;merge', 'Do&hairsp;not&hairsp;merge', 'Do [not](https://example.com) merge', 'P<strong>1</strong> blocker', 'Do <em>not</em> merge', 'P&#8203;1 blocker', 'Do&#8203;not&#8203;merge', 'Do&ThinSpace;not&ThinSpace;merge', 'Do&ZeroWidthSpace;not&ZeroWidthSpace;merge']) {
     const body = summary() + '\n<details> <summary>ℹ️ About Codex in GitHub</summary>\n' + warning + '\n</details>';
     assert.equal(accepts(comment(body), sha, marker), false);
     assert.notEqual(gate({ body: '', comments: [old, comment(body)], formal: true }).status, 0);
