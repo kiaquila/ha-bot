@@ -561,4 +561,23 @@ test('leading typed findings survive trailing presentation without authorizing e
   for (const body of ['```html\n' + negative + '\n```', negative.split('\n').map(line => '> ' + line).join('\n'), negative.replace('## Codex Review Summary', '<!-- codex-review-state:v1 {} -->\n## Codex Review Summary')]) {
     assert.equal(gate({ body: '', comments: [comment(body, { created_at: time, updated_at: time })], formal: true }).status, 0);
   }
+  const fencedClear = comment('```html\n' + summary().replaceAll(after, '2026-10-15T09:00:00Z') + '\n```', { created_at: '2026-10-15T09:00:00Z', updated_at: '2026-10-15T09:00:00Z' });
+  assert.notEqual(gate({ body: '', comments: [comment(negative, { created_at: time, updated_at: time }), fencedClear], formal: true }).status, 0);
+});
+
+
+test('warning-bearing own finding row keeps edit-time invalidation', () => {
+  const old = comment(summary({ has_any_findings: true }).replaceAll(after, '2026-10-15T09:00:00Z').replace('📝 **Code Review**', '⚠️ Do not merge 📝 **Code Review**'), { created_at: '2026-10-15T09:00:00Z', updated_at: '2026-10-15T10:05:00Z' });
+  const clean = comment(summary().replaceAll(after, '2026-10-15T10:04:00Z'), { updated_at: '2026-10-15T10:04:00Z' });
+  assert.notEqual(gate({ body: '', comments: [old, clean], formal: true }).status, 0);
+  for (const prose of ['Found P1 issues.', 'Security review failed.']) {
+    const edited = { ...old, body: old.body.replace('⚠️ Do not merge 📝 **Code Review**', '📝 **Code Review**') + '\n' + prose };
+    assert.notEqual(gate({ body: '', comments: [edited, clean], formal: true }).status, 0);
+  }
+});
+
+
+test('leading metadata cannot hide a newer malformed protocol observation', () => {
+  const malformed = comment('<!-- TODO -->\n<!-- codex-review-state:v1 broken -->', { created_at: '2026-10-15T10:05:00Z', updated_at: '2026-10-15T10:05:00Z' });
+  assert.notEqual(gate({ body: '', comments: [comment(receipt), malformed] }).status, 0);
 });

@@ -398,7 +398,9 @@ export function hasUnclearedStructuredFindings(comments, headSha, requestMarker,
   return evidence.some(({ comment, state }) => ["code_review", "security_review"].some((kind) => {
     const review = state[kind];
     if (review.commit_sha !== headSha || !(review.has_any_findings || review.has_unresolved_findings)) return false;
-    const sectionTime = state[kind].status === "completed" ? sectionCompletionBucket(comment, kind, headSha) : NaN;
+    const sectionTime = state[kind].status === "completed" && canonicalSectionClear(comment,
+      { ...state, [kind]: { ...state[kind], has_any_findings: false, has_unresolved_findings: false } },
+      kind, headSha, config, false) ? sectionCompletionBucket(comment, kind, headSha) : NaN;
     const findingTime = Number.isFinite(sectionTime) ? sectionTime : Math.floor(Date.parse(codexCommentTime(comment) || "") / 1000);
     return !evidence.some((clean) => {
       const next = clean.state[kind];
@@ -414,7 +416,10 @@ function sectionCompletionBucket(comment, kind, headSha = null) {
   const rows = String(comment.body || "").split(/\r?\n/).filter((line) => line.startsWith("|") && line.includes(title));
   if (rows.length !== 1) return NaN;
   const cells = rows[0].split("|").map((cell) => cell.trim());
-  if (cells.length !== 6 || (headSha && cells[3] !== "`" + headSha.slice(0, 7) + "`")) return NaN;
+  const label = kind === "security_review" ? /^(?:🛡️|🔒) \*\*Security Review\*\*$/ : /^📝 \*\*Code Review\*\*$/;
+  if (cells.length !== 6 || !label.test(cells[1]) || cells[5] !== "" ||
+      !["Manual request", "Automatic review"].includes(cells[4]) ||
+      (headSha && cells[3] !== "`" + headSha.slice(0, 7) + "`")) return NaN;
   const match = rows[0].match(/\| ✅ \*\*Completed\*\* <relative-time datetime="([^"]+)">([^<]+)<\/relative-time> \|/);
   const value = match && match[1] === match[2] ? Date.parse(match[1]) : NaN;
   const updated = Date.parse(comment.updated_at || comment.created_at || "");
