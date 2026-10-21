@@ -608,7 +608,7 @@ test('code-indented heading and formatted warning triggers cannot approve', () =
   assert.equal(accepts(comment(summary().replace('<!-- codex-pull-request-review-summary -->', '    \uFEFF<!-- codex-pull-request-review-summary -->')), sha, marker), false);
   for (const body of [summary() + '\n<!--\n```html\n-->\n' + row, summary().replace('| 📝 **Code Review**', '<!--\n| 📝 **Code Review**'), summary().replace('<relative-time', '<!-- presentation\nmetadata --><relative-time')]) assert.equal(accepts(comment(body), sha, marker), false);
   for (const prefix of ['    ', '\t', '\uFEFF    ', '<!-- presentation metadata -->    ']) assert.equal(accepts(comment(summary().replace('## Codex Review Summary', prefix + '## Codex Review Summary')), sha, marker), false);
-  for (const trigger of ['Do **not** merge', 'Do not&nbsp;merge', 'P&#8203;1 blocker', 'Do [not](https://example.com/(x)) merge', '<img src="invalid" alt="P1 blocker">', '[safe](P1 blocker)', 'Do [not][x] merge\n\n[x]: https://example.com', 'Do [not][] merge\n\n[not]: https://example.com', 'Do [not] merge\n\n[not]: https://example.com', 'Do [not](https://example.com "title") merge', "Do [not](https://example.com 'title') merge", 'Do [not](https://example.com (title)) merge', 'Do <span title="&#34;>">not</span> merge', '<!--[x](foo-->P1)', '[safe][P1 blocker]', '[safe](P1\\ blocker)', '[safe](P1>)', 'Found issues.', 'Security review failed.', 'Review pending.', 'Changes requested.']) assert.equal(accepts(comment(summary().replace('Manual request', trigger)), sha, marker), false);
+  for (const trigger of ['Do **not** merge', 'Do not&nbsp;merge', 'P&#8203;1 blocker', 'Do [not](https://example.com/(x)) merge', '<img src="invalid" alt="P1 blocker">', '[safe](P1 blocker)', 'Do [not][x] merge\n\n[x]: https://example.com', 'Do [not][] merge\n\n[not]: https://example.com', 'Do [not] merge\n\n[not]: https://example.com', 'Do [not](https://example.com "title") merge', "Do [not](https://example.com 'title') merge", 'Do [not](https://example.com (title)) merge', 'Do <span title="&#34;>">not</span> merge', '<!--[x](foo-->P1)', '[safe][P1 blocker]', '[safe](P1\\ blocker)', '[safe](P1>)', 'Found issues.', 'Security review failed.', 'Review pending.', 'Changes requested.', 'Do [not]( https://example.com ) merge', 'Do [not]() merge', '\\[safe](P1)', '`[safe](P1)`', '```text\n[safe](P1)\n```', '~~~text\n[safe](P1)\n~~~', '<code>[safe](P1)</code>', '<P1?> blocker', '[safe\\]( P1)']) assert.equal(accepts(comment(summary().replace('Manual request', trigger)), sha, marker), false);
 });
 
 
@@ -621,13 +621,16 @@ test('rendered footer warnings cannot approve or clear findings', () => {
   assert.equal(accepts(comment(adjacent), sha, marker), false);
   assert.notEqual(gate({ body: '', comments: [old, comment(adjacent)], formal: true }).status, 0);
   const row = summary().split('\n').find((line) => line.startsWith('| 📝 **Code Review**'));
+  const afterAboutDuplicate = summary() + '\n<details><summary>ℹ️ About Codex in GitHub</summary>\nInformational.\n</details>\n' + row;
+  assert.equal(accepts(comment(afterAboutDuplicate), sha, marker), false);
+  assert.notEqual(gate({ body: '', comments: [old, comment(afterAboutDuplicate)], formal: true }).status, 0);
   const visibleDuplicate = summary() + '\n<details><summary>ℹ️ About Codex in GitHub\n' + row.replace('`2667f79`', '`aaaaaaa`') + '\n</summary></details>';
   assert.equal(accepts(comment(visibleDuplicate), sha, marker), false);
   assert.notEqual(gate({ body: '', comments: [old, comment(visibleDuplicate)], formal: true }).status, 0);
   const nested = summary().replace(row, '') + '\n<details><summary>ℹ️ About Codex in GitHub</summary>\n<details><summary>inner</summary></details>\n' + row + '\n</details>';
   assert.equal(accepts(comment(nested), sha, marker), false);
   assert.notEqual(gate({ body: '', comments: [old, comment(nested)], formal: true }).status, 0);
-  for (const tag of ['pre', 'code', 'div']) {
+  for (const tag of ['pre', 'code', 'div', 'script', 'style', 'textarea', 'table', 'section', 'article', 'blockquote']) {
     const wrapped = summary().replace(row, '<' + tag + '>\n' + row + '\n</' + tag + '>');
     const findingRow = old.body.split('\n').find((line) => line.startsWith('| 📝 **Code Review**'));
     const wrappedFinding = { ...old, body: old.body.replace(findingRow, '<' + tag + '>\n' + findingRow + '\n</' + tag + '>'), updated_at: '2026-10-15T12:00:00Z' };
@@ -635,11 +638,14 @@ test('rendered footer warnings cannot approve or clear findings', () => {
     assert.notEqual(gate({ body: '', comments: [old, comment(wrapped)], formal: true }).status, 0);
     assert.notEqual(gate({ body: '', comments: [wrappedFinding, comment(summary())] }).status, 0);
   }
+  const unmatched = summary().replace(row, '') + '\n<details><summary>ℹ️ About Codex in GitHub</summary>\n</pre>\n' + row + '\n</details>';
+  assert.equal(accepts(comment(unmatched), sha, marker), false);
+  assert.notEqual(gate({ body: '', comments: [old, comment(unmatched)], formal: true }).status, 0);
   const collapsed = summary().replace(row, '') + '\n<details> <summary>ℹ️ About Codex in GitHub</summary>\n' + row + '\n</details>';
   assert.equal(accepts(comment(collapsed), sha, marker), false);
   assert.notEqual(gate({ body: '', comments: [old, comment(collapsed)], formal: true }).status, 0);
   for (const body of [summary() + '\n<!--\n```html\n-->\n' + row, summary().replace('| 📝 **Code Review**', '<!--\n| 📝 **Code Review**'), summary().replace('<relative-time', '<!-- presentation\nmetadata --><relative-time')]) assert.notEqual(gate({ body: '', comments: [old, comment(body)], formal: true }).status, 0);
-  for (const warning of ['P&#49; blocker', 'P*1* blocker', 'Do&#32;not&#32;merge', 'Do&MediumSpace;not&MediumSpace;merge', 'Do&hairsp;not&hairsp;merge', 'Do [not](https://example.com) merge', 'P<strong>1</strong> blocker', 'Do <em>not</em> merge', 'P&#8203;1 blocker', 'Do&#8203;not&#8203;merge', 'Do&ThinSpace;not&ThinSpace;merge', 'Do&ZeroWidthSpace;not&ZeroWidthSpace;merge', 'P\uFE0F1 blocker', 'Do <sub>not</sub> merge', 'P<kbd>1</kbd> blocker', 'Do <!--hidden-->not merge', 'P<!--hidden-->1 blocker', 'P<span></span>1 blocker', 'Do<span>not</span>merge', 'Do <span title=">">not</span> merge', 'Do [not](https://example.com/(x)) merge', '<img src="invalid" alt="P1 blocker">', '[safe](P1 blocker)', 'Do [not][x] merge\n\n[x]: https://example.com', 'Do [not][] merge\n\n[not]: https://example.com', 'Do [not] merge\n\n[not]: https://example.com', 'Do [not](https://example.com "title") merge', "Do [not](https://example.com 'title') merge", 'Do [not](https://example.com (title)) merge', 'Do <span title="&#34;>">not</span> merge', '<!--[x](foo-->P1)', '[safe][P1 blocker]', '[safe](P1\\ blocker)', '[safe](P1>)', 'Found issues.', 'Security review failed.', 'Review pending.', 'Changes requested.']) {
+  for (const warning of ['P&#49; blocker', 'P*1* blocker', 'Do&#32;not&#32;merge', 'Do&MediumSpace;not&MediumSpace;merge', 'Do&hairsp;not&hairsp;merge', 'Do [not](https://example.com) merge', 'P<strong>1</strong> blocker', 'Do <em>not</em> merge', 'P&#8203;1 blocker', 'Do&#8203;not&#8203;merge', 'Do&ThinSpace;not&ThinSpace;merge', 'Do&ZeroWidthSpace;not&ZeroWidthSpace;merge', 'P\uFE0F1 blocker', 'Do <sub>not</sub> merge', 'P<kbd>1</kbd> blocker', 'Do <!--hidden-->not merge', 'P<!--hidden-->1 blocker', 'P<span></span>1 blocker', 'Do<span>not</span>merge', 'Do <span title=">">not</span> merge', 'Do [not](https://example.com/(x)) merge', '<img src="invalid" alt="P1 blocker">', '[safe](P1 blocker)', 'Do [not][x] merge\n\n[x]: https://example.com', 'Do [not][] merge\n\n[not]: https://example.com', 'Do [not] merge\n\n[not]: https://example.com', 'Do [not](https://example.com "title") merge', "Do [not](https://example.com 'title') merge", 'Do [not](https://example.com (title)) merge', 'Do <span title="&#34;>">not</span> merge', '<!--[x](foo-->P1)', '[safe][P1 blocker]', '[safe](P1\\ blocker)', '[safe](P1>)', 'Found issues.', 'Security review failed.', 'Review pending.', 'Changes requested.', 'Do [not]( https://example.com ) merge', 'Do [not]() merge', '\\[safe](P1)', '`[safe](P1)`', '```text\n[safe](P1)\n```', '~~~text\n[safe](P1)\n~~~', '<code>[safe](P1)</code>', '<P1?> blocker', '[safe\\]( P1)']) {
     const body = summary() + '\n<details> <summary>ℹ️ About Codex in GitHub</summary>\n' + warning + '\n</details>';
     assert.equal(accepts(comment(body), sha, marker), false);
     assert.notEqual(gate({ body: '', comments: [old, comment(body)], formal: true }).status, 0);
