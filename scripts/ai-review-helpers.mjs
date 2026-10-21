@@ -447,14 +447,15 @@ function validFindingCompanions(comment, state, headSha, config = {}, allowResol
 
 
 function hasIndentedCodexEnvelope(body) {
-  const leading = String(body || "").match(/^(?:[ \t\r\n]*<!--[\s\S]*?-->)*[ \t\r\n]*/)?.[0] || "";
+  const leading = String(body || "").replace(/\uFEFF/g, "").match(/^(?:[ \t\r\n]*<!--[\s\S]*?-->)*[ \t\r\n]*/)?.[0] || "";
   return /^(?: {4,}|[ \t]*\t[ \t]*)<!-- codex-/im.test(leading);
 }
 
 function removableCompanionRow(comment, review, kind, row) {
   if (!review?.commit_sha) return false;
   const cells = row.split("|").map((cell) => cell.trim());
-  if (cells.length !== 6 || cells[3] !== "`" + review.commit_sha.slice(0, 7) + "`" ||
+  const label = kind === "security_review" ? /^(?:🛡️|🔒) \*\*Security Review\*\*$/ : /^📝 \*\*Code Review\*\*$/;
+  if (cells.length !== 6 || !label.test(cells[1]) || cells[3] !== "`" + review.commit_sha.slice(0, 7) + "`" ||
       !["Manual request", "Automatic review"].includes(cells[4])) return false;
   if (review.status === "completed") return /^✅ \*\*Completed\*\* /.test(cells[2]) &&
     Number.isFinite(sectionCompletionBucket(comment, kind, review.commit_sha));

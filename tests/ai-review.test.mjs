@@ -500,7 +500,7 @@ test('foreign-only negative edits remain observations and indented protocol is n
   const clean = comment(summary().replaceAll(after, '2026-10-15T10:04:00Z'), { updated_at: '2026-10-15T10:04:00Z' });
   assert.notEqual(gate({ body: '', comments: [old, clean] }).status, 0);
   for (const prefix of [' ', '  ', '   ']) assert.equal(accepts(comment(summary().replace(/^<!-- codex-/gm, prefix + '<!-- codex-')), sha, marker), true);
-  for (const prefix of ['    ', '\t']) {
+  for (const prefix of ['    ', '\t', '\uFEFF    ', '\uFEFF\t']) {
     const example = comment(summary({ has_any_findings: true }).replace(/^<!-- codex-/gm, prefix + '<!-- codex-').replaceAll(after, '2026-10-15T09:00:00Z'), { created_at: '2026-10-15T09:00:00Z', updated_at: '2026-10-15T09:00:00Z' });
     assert.equal(gate({ body: '', comments: [example], formal: true }).status, 0);
     assert.notEqual(gate({ body: summary().replace(/^<!-- codex-/gm, prefix + '<!-- codex-') }).status, 0);
@@ -542,4 +542,10 @@ test('protocol discovery and partial projection preserve pending and genuine fin
   assert.notEqual(gate({ body: '', comments: [comment(oldBody, { created_at: '2026-10-15T08:00:00Z' }), inactiveWarning], formal: true }).status, 0);
   const canonical = { ...invalidClear, body: invalidClear.body.replace('⚠️ Do not merge', '🔄 **Running** since <relative-time datetime="2026-10-15T09:00:00Z">2026-10-15T09:00:00Z</relative-time>') };
   assert.equal(gate({ body: '', comments: [comment(oldBody, { created_at: '2026-10-15T08:00:00Z' }), canonical], formal: true }).status, 0);
+  for (const prefix of ['    ', '\t']) {
+    const todoClear = { ...canonical, body: summary().replaceAll(after, '2026-10-15T09:00:00Z') + '\n' + prefix + '<!-- TODO -->' };
+    assert.notEqual(gate({ body: '', comments: [comment(oldBody, { created_at: '2026-10-15T08:00:00Z' }), todoClear], formal: true }).status, 0);
+  }
+  const warningLabel = { ...canonical, body: canonical.body.replace('🔒 **Security Review**', '⚠️ Do not merge 🔒 **Security Review**') };
+  assert.notEqual(gate({ body: '', comments: [comment(oldBody, { created_at: '2026-10-15T08:00:00Z' }), warningLabel], formal: true }).status, 0);
 });
