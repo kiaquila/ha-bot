@@ -124,3 +124,5 @@ Positive static receipt/legacy evidence uses immutable created_at for freshness 
 Repeated same-head requests preserve validated typed code/security findings. Formal approval alone cannot clear them: a strictly newer authoritative structured completion must explicitly report false finding flags for the affected channel. Historical malformed or foreign-head payloads do not acquire this persistent barrier.
 
 Completed typed negatives retain their affected section's valid canonical completion clock in candidate ordering and history clearance. Unrelated edits cannot renew old findings; missing, invalid or running section clocks use the edit time conservatively.
+
+Historical canonical resolution is independent of later request markers: a repeated request cannot revive an already cleared finding. Current code approval still requires fresh evidence after the active request.

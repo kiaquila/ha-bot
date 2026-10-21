@@ -416,3 +416,33 @@ test('security finding completion survives unrelated newer code/comment edits', 
   const clean = comment(summary({}, { ...sec, has_any_findings: false, has_unresolved_findings: false }).replaceAll('2026-10-15T10:01:00Z', '2026-10-15T10:04:00Z') + securityRow('2026-10-15T10:04:00Z'), { created_at: '2026-10-15T10:04:00Z', updated_at: '2026-10-15T10:04:00Z' });
   assert.equal(gate({ body: '', comments: [old, clean] }).status, 0);
 });
+
+
+test('running section edit retains observation timestamp after code finding clearance', () => {
+  const old = comment(summary({ has_any_findings: true }, { commit_sha: sha, status: 'in_progress', has_any_findings: false, has_unresolved_findings: false }).replaceAll('2026-10-15T10:01:00Z', '2026-10-15T09:00:00Z'), { created_at: '2026-10-15T09:00:00Z', updated_at: '2026-10-15T10:05:00Z' });
+  const clean = comment(summary().replaceAll('2026-10-15T10:01:00Z', '2026-10-15T10:04:00Z'), { created_at: '2026-10-15T10:04:00Z', updated_at: '2026-10-15T10:04:00Z' });
+  assert.notEqual(gate({ body: '', comments: [old, clean] }).status, 0);
+});
+
+
+test('historically resolved typed finding stays resolved across repeated requests', () => {
+  const old = comment(summary({ has_any_findings: true }).replaceAll('2026-10-15T10:01:00Z', '2026-10-15T08:00:00Z'), { created_at: '2026-10-15T08:00:00Z', updated_at: '2026-10-15T08:00:00Z' });
+  const clean = comment(summary().replaceAll('2026-10-15T10:01:00Z', '2026-10-15T09:00:00Z'), { created_at: '2026-10-15T09:00:00Z', updated_at: '2026-10-15T09:00:00Z' });
+  assert.equal(gate({ body: '', comments: [old, clean], formal: true }).status, 0);
+});
+
+
+test('historical code resolution is section-local with unrelated running security', () => {
+  const old = comment(summary({ has_any_findings: true }).replaceAll('2026-10-15T10:01:00Z', '2026-10-15T08:00:00Z'), { created_at: '2026-10-15T08:00:00Z', updated_at: '2026-10-15T08:00:00Z' });
+  const clear = comment(summary({}, { commit_sha: sha, status: 'in_progress', has_any_findings: false, has_unresolved_findings: false }).replaceAll('2026-10-15T10:01:00Z', '2026-10-15T09:00:00Z'), { created_at: '2026-10-15T09:00:00Z', updated_at: '2026-10-15T09:00:00Z' });
+  assert.equal(gate({ body: '', comments: [old, clear], formal: true }).status, 0);
+});
+
+
+test('contradictory historical section clear cannot resolve a typed finding', () => {
+  const old = comment(summary({ has_any_findings: true }).replaceAll('2026-10-15T10:01:00Z', '2026-10-15T08:00:00Z'), { created_at: '2026-10-15T08:00:00Z', updated_at: '2026-10-15T08:00:00Z' });
+  for (const extra of ['Found P1 issues.', 'Security review failed.']) {
+    const clear = comment(summary().replaceAll('2026-10-15T10:01:00Z', '2026-10-15T09:00:00Z') + '\n' + extra, { created_at: '2026-10-15T09:00:00Z', updated_at: '2026-10-15T09:00:00Z' });
+    assert.notEqual(gate({ body: '', comments: [old, clear], formal: true }).status, 0);
+  }
+});
