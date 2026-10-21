@@ -47,3 +47,9 @@ Consolidated actual-native corrections passed mandatory preflight: 58 Python, 47
 16:59 actual variation-selector warning: visible contradiction checks normalize Unicode Default_Ignorable_Code_Point rather than only Cf, so P plus U+FE0F plus 1 cannot approve or clear history. Raw machine evidence parsing is unchanged; exact footer production-path regression added.
 
 16:59 variation-selector correction passed mandatory pnpm preflight: 58 Python and 50 Node tests. Adjacent About-summary severity remains blocked without adding source whitespace because only inline strong/em tags are projected.
+
+17:03 actual native counterparts: visible checks project inline HTML generally and preserve block boundaries, preventing sub/kbd or comment-split warnings from becoming clean while adjacent About-summary severity remains blocking. Encoded inactive companion labels and balanced-link warning triggers are already rejected by strict row grammar; exact production controls retain those boundaries.
+
+17:08 current-batch counterparts: complementary joined/separated inline-text projections preserve P<span></span>1 severity and Do<span>not</span>merge warnings. Raw indentation guard accounts for JS-trim-consumed Unicode whitespace, including NBSP between indentation and protocol marker; Markdown examples cannot acquire authority. No finding-count grammar added where none existed.
+
+17:03/17:08 consolidated source passed mandatory pnpm preflight (58 Python, 50 Node). Final JS/tests edit 17:11:06 UTC; actual Node component started 17:12:01 UTC and exited 0. Independent bounded reviewer cleared exact current-batch controls. Publication waits for the shared batch barrier.
