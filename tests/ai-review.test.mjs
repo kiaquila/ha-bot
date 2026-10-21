@@ -493,3 +493,36 @@ test('invalid completed companion retains newer observation after finding resolu
   const valid = { ...old, body: old.body.replace(row, row.replace('`2667f79`', '`aaaaaaa`')) };
   assert.equal(gate({ body: '', comments: [valid, clear] }).status, 0);
 });
+
+
+test('foreign-only negative edits remain observations and indented protocol is no historical finding', () => {
+  const old = comment(summary({ commit_sha: 'a'.repeat(40), has_any_findings: true }).replaceAll('`2667f79`', '`aaaaaaa`').replaceAll(after, '2026-10-15T09:00:00Z'), { created_at: '2026-10-15T09:00:00Z', updated_at: '2026-10-15T10:05:00Z' });
+  const clean = comment(summary().replaceAll(after, '2026-10-15T10:04:00Z'), { updated_at: '2026-10-15T10:04:00Z' });
+  assert.notEqual(gate({ body: '', comments: [old, clean] }).status, 0);
+  for (const prefix of [' ', '  ', '   ']) assert.equal(accepts(comment(summary().replace(/^<!-- codex-/gm, prefix + '<!-- codex-')), sha, marker), true);
+  for (const prefix of ['    ', '\t']) {
+    const example = comment(summary({ has_any_findings: true }).replace(/^<!-- codex-/gm, prefix + '<!-- codex-').replaceAll(after, '2026-10-15T09:00:00Z'), { created_at: '2026-10-15T09:00:00Z', updated_at: '2026-10-15T09:00:00Z' });
+    assert.equal(gate({ body: '', comments: [example], formal: true }).status, 0);
+    assert.notEqual(gate({ body: summary().replace(/^<!-- codex-/gm, prefix + '<!-- codex-') }).status, 0);
+    const finding = comment(summary({ has_any_findings: true }).replaceAll(after, '2026-10-15T08:00:00Z'), { created_at: '2026-10-15T08:00:00Z' });
+    const exampleClear = comment(summary().replace(/^<!-- codex-/gm, prefix + '<!-- codex-').replaceAll(after, '2026-10-15T09:00:00Z'), { created_at: '2026-10-15T09:00:00Z' });
+    assert.notEqual(gate({ body: '', comments: [finding, exampleClear], formal: true }).status, 0);
+  }
+});
+
+test('finding-bearing foreign companion requires its own visible row and configured identity survives', () => {
+  const sec = { commit_sha: 'a'.repeat(40), status: 'completed', has_any_findings: true, has_unresolved_findings: false };
+  const old = comment(summary({ has_any_findings: true }, sec).replaceAll(after, '2026-10-15T09:00:00Z'), { created_at: '2026-10-15T09:00:00Z', updated_at: '2026-10-15T10:05:00Z' });
+  const clean = comment(summary().replaceAll(after, '2026-10-15T10:04:00Z'), { updated_at: '2026-10-15T10:04:00Z' });
+  assert.notEqual(gate({ body: '', comments: [old, clean] }).status, 0);
+  const custom = { login: 'configured-codex[bot]' };
+  const coherent = comment(summary({ has_any_findings: true }).replaceAll(after, '2026-10-15T09:00:00Z'), { user: custom, created_at: '2026-10-15T09:00:00Z', updated_at: '2026-10-15T10:05:00Z' });
+  assert.equal(selectSummary([coherent, { ...clean, user: custom }], sha, marker, { trustedReviewLogins: [custom.login] }), 'pass');
+});
+
+
+test('case-varied unknown protocol cannot clear typed finding history', () => {
+  const old = comment(summary({ has_any_findings: true }).replaceAll(after, '2026-10-15T08:00:00Z'), { created_at: '2026-10-15T08:00:00Z' });
+  const invalidClear = comment(summary().replaceAll(after, '2026-10-15T09:00:00Z') + '\n<!-- CODEX-unknown -->', { created_at: '2026-10-15T09:00:00Z' });
+  assert.notEqual(gate({ body: '', comments: [old, invalidClear], formal: true }).status, 0);
+});
