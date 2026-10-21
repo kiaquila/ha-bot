@@ -526,3 +526,20 @@ test('case-varied unknown protocol cannot clear typed finding history', () => {
   const invalidClear = comment(summary().replaceAll(after, '2026-10-15T09:00:00Z') + '\n<!-- CODEX-unknown -->', { created_at: '2026-10-15T09:00:00Z' });
   assert.notEqual(gate({ body: '', comments: [old, invalidClear], formal: true }).status, 0);
 });
+
+
+test('protocol discovery and partial projection preserve pending and genuine findings', () => {
+  const clean = comment(summary().replaceAll(after, '2026-10-15T10:04:00Z'), { updated_at: '2026-10-15T10:04:00Z' });
+  const upper = comment(summary().replace('codex-pull-request-review-summary', 'CODEX-PULL-REQUEST-REVIEW-SUMMARY'), { updated_at: '2026-10-15T10:05:00Z' });
+  assert.notEqual(gate({ body: '', comments: [clean, upper] }).status, 0);
+  const oldBody = summary({ has_any_findings: true }).replaceAll(after, '2026-10-15T08:00:00Z');
+  const old = comment(oldBody + '\nExample:\n    <!-- codex-review-state:v1 {} -->', { created_at: '2026-10-15T08:00:00Z', updated_at: '2026-10-15T08:00:00Z' });
+  assert.notEqual(gate({ body: '', comments: [old], formal: true }).status, 0);
+  const running = { commit_sha: sha, status: 'in_progress', has_any_findings: false, has_unresolved_findings: false };
+  const invalidClear = comment(summary({}, running).replaceAll(after, '2026-10-15T09:00:00Z') + '\n| 🔒 **Security Review** | ⚠️ Do not merge | `2667f79` | Manual request |', { created_at: '2026-10-15T09:00:00Z', updated_at: '2026-10-15T09:00:00Z' });
+  assert.notEqual(gate({ body: '', comments: [comment(oldBody, { created_at: '2026-10-15T08:00:00Z' }), invalidClear], formal: true }).status, 0);
+  const inactiveWarning = { ...invalidClear, body: summary().replaceAll(after, '2026-10-15T09:00:00Z') + '\n| 🔒 **Security Review** | ⚠️ Do not merge | `2667f79` | Manual request |' };
+  assert.notEqual(gate({ body: '', comments: [comment(oldBody, { created_at: '2026-10-15T08:00:00Z' }), inactiveWarning], formal: true }).status, 0);
+  const canonical = { ...invalidClear, body: invalidClear.body.replace('⚠️ Do not merge', '🔄 **Running** since <relative-time datetime="2026-10-15T09:00:00Z">2026-10-15T09:00:00Z</relative-time>') };
+  assert.equal(gate({ body: '', comments: [comment(oldBody, { created_at: '2026-10-15T08:00:00Z' }), canonical], formal: true }).status, 0);
+});
