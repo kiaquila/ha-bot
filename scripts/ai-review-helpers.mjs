@@ -149,7 +149,7 @@ export function verdictTime(comment, result) {
     if (state && Object.values(state).every((review) => review.status === null || review.status === "completed")) {
       const clocks = ["code_review", "security_review"].filter((kind) =>
         state[kind].has_any_findings === true || state[kind].has_unresolved_findings === true
-      ).map((kind) => state[kind].status === "completed" ? sectionCompletionBucket(comment, kind) : NaN);
+      ).map((kind) => state[kind].status === "completed" ? sectionCompletionBucket(comment, kind, state[kind].commit_sha) : NaN);
       if (clocks.length && clocks.every(Number.isFinite)) return new Date(Math.max(...clocks) * 1000).toISOString();
     }
   }
@@ -379,7 +379,7 @@ export function hasUnclearedStructuredFindings(comments, headSha, requestMarker,
   return evidence.some(({ comment, state }) => ["code_review", "security_review"].some((kind) => {
     const review = state[kind];
     if (review.commit_sha !== headSha || !(review.has_any_findings || review.has_unresolved_findings)) return false;
-    const sectionTime = state[kind].status === "completed" ? sectionCompletionBucket(comment, kind) : NaN;
+    const sectionTime = state[kind].status === "completed" ? sectionCompletionBucket(comment, kind, headSha) : NaN;
     const findingTime = Number.isFinite(sectionTime) ? sectionTime : Math.floor(Date.parse(codexCommentTime(comment) || "") / 1000);
     return !evidence.some((clean) => {
       const next = clean.state[kind];

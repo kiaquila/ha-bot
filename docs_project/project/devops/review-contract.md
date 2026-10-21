@@ -126,3 +126,5 @@ Repeated same-head requests preserve validated typed code/security findings. For
 Completed typed negatives retain their affected section's valid canonical completion clock in candidate ordering and history clearance. Unrelated edits cannot renew old findings; missing, invalid or running section clocks use the edit time conservatively.
 
 Historical canonical resolution is independent of later request markers: a repeated request cannot revive an already cleared finding. Current code approval still requires fresh evidence after the active request.
+
+Canonical finding clocks require the visible section commit to match the typed full head; mismatches fall back to observation time. Native P1 regression and mandatory preflight passed (58 Python, 36 Node tests).

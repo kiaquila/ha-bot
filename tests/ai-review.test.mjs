@@ -446,3 +446,10 @@ test('contradictory historical section clear cannot resolve a typed finding', ()
     assert.notEqual(gate({ body: '', comments: [old, clear], formal: true }).status, 0);
   }
 });
+
+
+test('mismatched visible finding head cannot lend an old clearance clock', () => {
+  const old = comment(summary({ has_any_findings: true }).replaceAll('2026-10-15T10:01:00Z', '2026-10-15T09:00:00Z').replaceAll('`' + sha.slice(0, 7) + '`', '`aaaaaaa`'), { created_at: '2026-10-15T09:00:00Z', updated_at: '2026-10-15T10:05:00Z' });
+  const clean = comment(summary().replaceAll('2026-10-15T10:01:00Z', '2026-10-15T10:04:00Z'), { created_at: '2026-10-15T10:04:00Z', updated_at: '2026-10-15T10:04:00Z' });
+  assert.notEqual(gate({ body: '', comments: [old, clean] }).status, 0);
+});
