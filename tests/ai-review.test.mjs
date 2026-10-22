@@ -618,6 +618,15 @@ test('rendered footer warnings cannot approve or clear findings', () => {
   const contiguousLegacy = summary() + '\n<details><summary>ℹ️ About Codex in GitHub</summary>Do&nbsp not&nbsp merge</details>';
   assert.equal(accepts(comment(contiguousLegacy), sha, marker), false);
   assert.notEqual(gate({ body: '', comments: [old, comment(contiguousLegacy)], formal: true }).status, 0);
+  for (const unresolvedStatement of ['1 bug is not fixed', 'There is an issue that was not resolved', 'This is not safe because there is a bug.', 'Found 1,000 issues.']) {
+    const body = summary() + '\n<details><summary>ℹ️ About Codex in GitHub</summary>' + unresolvedStatement + '</details>';
+    const editedOld = { ...old, body: old.body + body.slice(summary().length), updated_at: '2026-10-15T12:00:00Z' };
+    const newerClear = comment(summary().replaceAll(after, '2026-10-15T13:00:00Z'), { created_at: '2026-10-15T13:00:00Z', updated_at: '2026-10-15T13:00:00Z' });
+    assert.notEqual(gate({ body: '', comments: [editedOld, comment(summary())] }).status, 0, unresolvedStatement);
+    assert.equal(gate({ body: '', comments: [editedOld, newerClear] }).status, 0, unresolvedStatement);
+    assert.equal(accepts(comment(body), sha, marker), false, unresolvedStatement);
+    assert.notEqual(gate({ body: '', comments: [old, comment(body)], formal: true }).status, 0, unresolvedStatement);
+  }
   const rawWrappedCount = summary() + '\n<details><summary>ℹ️ About Codex in GitHub</summary>Found **1** issue</details>';
   assert.equal(accepts(comment(rawWrappedCount), sha, marker), false);
   assert.notEqual(gate({ body: '', comments: [old, comment(rawWrappedCount)], formal: true }).status, 0);
