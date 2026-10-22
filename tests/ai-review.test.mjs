@@ -618,6 +618,9 @@ test('rendered footer warnings cannot approve or clear findings', () => {
   const contiguousLegacy = summary() + '\n<details><summary>ℹ️ About Codex in GitHub</summary>Do&nbsp not&nbsp merge</details>';
   assert.equal(accepts(comment(contiguousLegacy), sha, marker), false);
   assert.notEqual(gate({ body: '', comments: [old, comment(contiguousLegacy)], formal: true }).status, 0);
+  const rawWrappedCount = summary() + '\n<details><summary>ℹ️ About Codex in GitHub</summary>Found **1** issue</details>';
+  assert.equal(accepts(comment(rawWrappedCount), sha, marker), false);
+  assert.notEqual(gate({ body: '', comments: [old, comment(rawWrappedCount)], formal: true }).status, 0);
   const balancedPlain = summary() + '\n<details><summary>ℹ️ About Codex in GitHub</summary>\n\n[safe [plain]](P1)</details>';
   assert.equal(accepts(comment(balancedPlain), sha, marker), true);
   for (const protectedPresentation of ['paragraph\n<span>\n[safe](P1)', 'P_1 is not a priority token', 'P*1', 'P_1_', '`P*1*`', '[safe]: /url\n  "title [^note]"\n[^note]: P1']) {
@@ -662,7 +665,7 @@ test('rendered footer warnings cannot approve or clear findings', () => {
     assert.equal(accepts(comment(opaqueDetails), sha, marker), false);
     assert.notEqual(gate({ body: '', comments: [old, comment(opaqueDetails)], formal: true }).status, 0);
   }
-  for (const cleanCount of ['This is not an issue.', 'This isn’t a bug.', 'This is not considered a bug.', 'This is a bug-free change', 'No longer an issue.', 'This is no longer an issue.', 'There is not an issue.', 'Found no issues.', 'Found zero issues.', 'Found 0 issues.', 'Found <em>no</em> issues.', 'Found <code>0</code> issues.', 'Found 0 code issues and 0 security issues.', 'There is no issue.']) {
+  for (const cleanCount of ['This is not an issue.', 'This isn’t a bug.', 'This is not considered a bug.', 'This is a bug-free change', 'No longer an issue.', 'This is no longer an issue.', 'There is not an issue.', 'Found no issues.', 'Found zero issues.', 'Found 0 issues.', 'Found **0** issues.', 'Found <em>no</em> issues.', 'Found <code>0</code> issues.', 'Found 0 code issues and 0 security issues.', 'There is no issue.']) {
     const cleanFooter = summary() + '\n<details><summary>ℹ️ About Codex in GitHub</summary>' + cleanCount + '</details>';
     assert.equal(accepts(comment(cleanFooter), sha, marker), true, cleanCount);
     const editedOld = { ...old, body: old.body + cleanFooter.slice(summary().length), updated_at: '2026-10-15T12:00:00Z' };
