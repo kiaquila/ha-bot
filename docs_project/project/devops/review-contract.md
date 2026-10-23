@@ -192,3 +192,5 @@ Ordinary reference labels and footnote identifiers use the same Unicode case fol
 A companion warning trigger may be isolated for an own-section negative clock only when that companion has explicit typed findings. A false/false companion must retain its original canonical presentation. Raw HTML blocks following indented code retain literal Markdown warnings; complete tags cannot interrupt an existing paragraph.
 
 Authoritative completion clocks for the owning section must fall between the comment creation and edit observations, using GitHub whole-second precision. Structurally canonical carried companion rows may predate creation, but supply no approval or clearance authority for that companion section. Older or malformed clocks cannot approve or clear findings; negative observations fall back to edit time until a genuinely newer canonical section completion resolves them.
+
+Completion rows require the recognized original review-table header. Legacy header-plus-row summaries remain supported without a delimiter; a standalone row cannot approve or clear a finding.
