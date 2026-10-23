@@ -220,3 +220,5 @@ A companion warning trigger may be isolated for an own-section negative clock on
 Authoritative completion clocks for the owning section must fall between the comment creation and edit observations, using GitHub whole-second precision. Structurally canonical carried companion rows may predate creation, but supply no approval or clearance authority for that companion section. Older or malformed clocks cannot approve or clear findings; negative observations fall back to edit time until a genuinely newer canonical section completion resolves them.
 
 Completion rows require the recognized original review-table header. Legacy header-plus-row summaries remain supported without a delimiter; a standalone row cannot approve or clear a finding.
+
+Completed full-SHA null/null lifecycle sections are accepted as neutral schema during negative extraction. They never approve a review or erase explicit findings in the companion section; only a newer canonical own-section completion resolves those findings, including after repeated same-head requests.

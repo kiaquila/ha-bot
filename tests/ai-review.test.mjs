@@ -844,3 +844,20 @@ test('unknown presentation cannot backdate a negative before its observed edit',
   const fresh = comment(summary().replaceAll(after, '2026-10-15T13:00:00Z'), {created_at: '2026-10-15T13:00:00Z', updated_at: '2026-10-15T13:00:00Z'});
   assert.equal(gate({body: '', comments: [old, fresh]}).status, 0);
 });
+
+
+test('completed null lifecycle never erases companion findings across repeated requests', () => {
+  const full = { commit_sha: sha, status: 'completed', has_any_findings: false, has_unresolved_findings: false };
+  const lifecycle = { ...full, has_any_findings: null, has_unresolved_findings: null };
+  const securityRow = (time) => '\n| 🛡️ **Security Review** | ✅ **Completed** <relative-time datetime="' + time + '">' + time + '</relative-time> | `' + sha.slice(0, 7) + '` | Manual request |';
+  const oldAt = '2026-10-15T09:00:00Z', clearAt = '2026-10-15T10:03:00Z';
+  for (const finding of ['code_review', 'security_review']) {
+    const state = finding === 'code_review' ? [{ ...full, has_any_findings: true, has_unresolved_findings: true }, lifecycle] : [lifecycle, { ...full, has_any_findings: true, has_unresolved_findings: true }];
+    const old = comment(summary(...state).replaceAll(after, oldAt) + securityRow(oldAt), { id: 901, created_at: oldAt, updated_at: oldAt });
+    const blocked = gate({ body: '', formal: true, comments: [old] });
+    assert.equal(blocked.status, 1, finding + blocked.stdout + blocked.stderr);
+    const clear = comment(summary(full, full).replaceAll(after, clearAt) + securityRow(clearAt), { id: 902, created_at: clearAt, updated_at: clearAt });
+    const recovered = gate({ body: '', formal: true, comments: [old, clear] });
+    assert.equal(recovered.status, 0, finding + recovered.stdout + recovered.stderr);
+  }
+});

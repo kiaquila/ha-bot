@@ -114,3 +114,5 @@ Consolidated actual-native corrections passed mandatory preflight: 58 Python, 47
 - [x] Replace semantic harmlessness as completion authority with a closed native presentation contract; retain hostile and unknown-presentation regressions.
 - [x] Cover observed receipt endings, exact trailing task links and null lifecycle independence.
 - [ ] Repeat mandatory preflight and obtain genuine exact-head native review for the final contract.
+
+Completed null/null lifecycle sections remain neutral during negative extraction: explicit companion CODE/SEC findings survive repeated same-head requests and formal approval until a genuinely newer canonical own-section clear. Symmetric actual CLI regression required.

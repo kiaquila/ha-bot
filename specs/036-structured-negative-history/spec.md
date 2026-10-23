@@ -17,3 +17,5 @@ A repeated request on the same head cannot erase validated typed code or securit
 ## Closed native completion contract
 
 Only canonical native heading/table/schema and the exact observed informational help footer can establish completion clocks or clear a channel. Arbitrary prose or Markdown, including apparently harmless examples and negated findings, remains observation-time evidence. A strictly newer canonical own-channel clear can recover typed findings; independent raw warnings retain their existing veto. Static replies require one whole recognized no-findings verdict, a finite observed closing, and existing SHA/request checks. Completed null/null lifecycle is never approval and may coexist only with a fresh immutable current-SHA receipt within its own completion window.
+
+Completed null/null lifecycle sections remain neutral during negative extraction: explicit companion CODE/SEC findings survive repeated same-head requests and formal approval until a genuinely newer canonical own-section clear. Symmetric actual CLI regression required.

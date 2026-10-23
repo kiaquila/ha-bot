@@ -1375,8 +1375,9 @@ function typedCodexState(comment) {
   for (const value of Object.values(state)) {
     if (!exactlyKeys(value, ["commit_sha", "has_any_findings", "has_unresolved_findings", "status"])) return null;
     if (Object.values(value).every((entry) => entry === null)) continue;
-    if (!/^[a-f0-9]{40}$/.test(value.commit_sha || "") || typeof value.has_any_findings !== "boolean" ||
-        typeof value.has_unresolved_findings !== "boolean" ||
+    if (!/^[a-f0-9]{40}$/.test(value.commit_sha || "") ||
+        (!([true, false].includes(value.has_any_findings) && [true, false].includes(value.has_unresolved_findings)) &&
+         !(value.status === "completed" && value.has_any_findings === null && value.has_unresolved_findings === null)) ||
         !["completed", "running", "in_progress", "queued", "pending", "failed", "cancelled"].includes(value.status) ||
         (!value.has_any_findings && value.has_unresolved_findings)) return null;
   }
