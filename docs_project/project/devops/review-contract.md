@@ -3,6 +3,32 @@
 Reviewers check the pull request against the active feature spec. Acceptance
 criteria, negative scenarios, and known issues define expected behavior.
 
+## Native presentation authority
+
+Completion clocks and finding clearance use a closed native body: the strict
+leading schema, heading, canonical contiguous review table and, optionally, one
+exact observed Codex help footer. The recognized triggers are `Manual request`,
+`Automatic review` and `PR opened`. Unknown prose or Markdown cannot establish a
+completion clock, even when it looks harmless or contains negated findings.
+A typed negative in such a body keeps its server observation time; only a
+strictly newer canonical own-channel clear can retire it. Existing independent
+raw warnings, native findings and unresolved threads retain their vetoes.
+
+Static replies require the entire no-findings verdict, a finite observed native
+closing and the existing SHA/request binding. Only one exact service-owned
+`View task →` link may follow. A contrary suffix or an arbitrary link is not
+approval. Friendly wording never overrides the strict structured state.
+
+A canonical completed code lifecycle with both finding flags null is not a
+verdict. It can accompany a valid immutable SHA-bound receipt only if that
+receipt was created after the current request and summary creation, and no later
+than the code section's own valid completion clock. Null lifecycle alone,
+unknown presentation, active security, mixed flags and reactions cannot approve.
+
+The rendering and semantic helpers described below serve conservative negative
+and independent-warning checks. They never turn free-form prose into canonical
+completion authority.
+
 ## Codex
 
 Only configured trusted Codex identities provide evidence. A trusted human
