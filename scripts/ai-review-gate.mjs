@@ -5,6 +5,7 @@ import {
   hasHeadUpdateBetweenTimestamps,
   isAcceptableClaudeComment,
   verdictTime,
+  hasUnclearedStructuredFindings,
   classifyCodexSummaryComment,
   isTrustedReviewLogin,
   latestCodexCommentResult,
@@ -147,6 +148,7 @@ async function fetchEvidence() {
     // A new request marker must never erase current-head failures or unresolved threads.
     const nativeResult = latestCodexNativeReviewResult(reviews, reviewComments, headSha, config);
     if (nativeResult === "fail") return "fail";
+    if (hasUnclearedStructuredFindings(comments, headSha, requestMarker, config)) return "pending";
     let cursor = null;
     do {
       const data = await request("/graphql", {
@@ -179,7 +181,7 @@ async function fetchEvidence() {
     const commentResult = latestCodexCommentResult(comments, headSha, requestMarker, config);
     const latestCommentAt = Math.max(...comments.filter((comment) =>
       isTrustedReviewLogin(comment.user?.login, "codex", config)
-    ).map((comment) => Math.floor(Date.parse(verdictTime(comment, classifyCodexSummaryComment(comment, headSha, requestMarker, config)) || "") / 1000) * 1000).filter(Number.isFinite));
+    ).map((comment) => Math.floor(Date.parse(verdictTime(comment, classifyCodexSummaryComment(comment, headSha, requestMarker, config), headSha, config) || "") / 1000) * 1000).filter(Number.isFinite));
     const latestReviewAt = Math.max(...reviewsAfterRequest.filter((review) => review.commit_id === headSha &&
       isTrustedReviewLogin(review.user?.login, "codex", config)
     ).map((review) => Math.floor(Date.parse(review.submitted_at || "") / 1000) * 1000).filter(Number.isFinite));
