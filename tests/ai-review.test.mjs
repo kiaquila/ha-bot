@@ -759,6 +759,11 @@ test('actual gate keeps warning clocks scoped to their section',()=>{
   const result=gate({body:'',comments:[old,codeclear,secclear,current]});
   assert.equal(result.status,mode==='row'?0:1,mode+'\n'+result.stdout+result.stderr);
  }
+ const staleAt='2026-10-15T08:00:00Z';
+ const historical=comment(body(section,{...section,has_any_findings:true,has_unresolved_findings:true},staleAt,'2026-10-15T21:55:00Z'),{id:805,created_at:staleAt,updated_at:'2026-10-15T21:55:00Z'});
+ const securityClear=comment(body(section,section,staleAt,'2026-10-15T21:56:00Z'),{id:806,created_at:staleAt,updated_at:'2026-10-15T21:56:00Z'});
+ const independent=gate({body:'',comments:[historical,securityClear,current]});
+ assert.equal(independent.status,0,independent.stdout+independent.stderr);
 });
 
 
@@ -859,5 +864,37 @@ test('completed null lifecycle never erases companion findings across repeated r
     const clear = comment(summary(full, full).replaceAll(after, clearAt) + securityRow(clearAt), { id: 902, created_at: clearAt, updated_at: clearAt });
     const recovered = gate({ body: '', formal: true, comments: [old, clear] });
     assert.equal(recovered.status, 0, finding + recovered.stdout + recovered.stderr);
+  }
+});
+
+
+test('rejected legacy presentation keeps its observed edit clock', () => {
+  const oldAt = '2026-10-15T09:00:00Z', observedAt = '2026-10-15T12:00:00Z';
+  const rejected = comment("Codex Review: Didn't find any major issues.\n\n<details><summary>About Codex in GitHub</summary>Unknown presentation.</details>", { id: 901, created_at: oldAt, updated_at: observedAt });
+  for (const time of ['2026-10-15T11:00:00Z', observedAt, '2026-10-15T12:01:00Z']) {
+    const clean = comment(legacy, { id: 902, created_at: time, updated_at: time });
+    const outcome = gate({ body: '', comments: [rejected, clean] });
+    assert.equal(outcome.status, time > observedAt ? 0 : 1, time + outcome.stdout + outcome.stderr);
+  }
+  const known = comment("Codex Review: Didn't find any major issues.\n" + observed.receipt.slice(observed.receipt.indexOf('<details>')), { id: 903, created_at: oldAt, updated_at: observedAt });
+  const intervening = comment(legacy, { id: 904, created_at: '2026-10-15T11:00:00Z', updated_at: '2026-10-15T11:00:00Z' });
+  const outcome = gate({ body: '', comments: [known, intervening] });
+  assert.equal(outcome.status, 0, outcome.stdout + outcome.stderr);
+});
+
+
+test('late receipts cannot retire an unpaired null lifecycle', async () => {
+  const completed = Date.parse(after);
+  const observedAt = new Date(completed + 60000).toISOString();
+  const lifecycle = comment(summary({ has_any_findings: null, has_unresolved_findings: null }), { id: 901, created_at: after, updated_at: observedAt });
+  const lateAt = new Date(completed + 180000).toISOString();
+  const late = comment(receipt, { id: 902, created_at: lateAt, updated_at: lateAt });
+  const intermediateAt = new Date(completed + 30000).toISOString();
+  const intermediate = comment(summary().replaceAll(after, intermediateAt), { id: 905, created_at: intermediateAt, updated_at: intermediateAt });
+  const equal = comment(summary().replaceAll(after, observedAt), { id: 903, created_at: observedAt, updated_at: observedAt });
+  const freshAt = new Date(completed + 120000).toISOString();
+  const fresh = comment(summary().replaceAll(after, freshAt), { id: 904, created_at: freshAt, updated_at: freshAt });
+  for (const [comments, expected] of [[[lifecycle, late], false], [[lifecycle, late, intermediate], false], [[lifecycle, late, equal], false], [[lifecycle, late, fresh], true]]) {
+    const outcome = gate({ body: '', comments }); assert.equal(outcome.status, expected ? 0 : 1, outcome.stdout + outcome.stderr);
   }
 });

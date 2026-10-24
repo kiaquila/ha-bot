@@ -222,3 +222,9 @@ Authoritative completion clocks for the owning section must fall between the com
 Completion rows require the recognized original review-table header. Legacy header-plus-row summaries remain supported without a delimiter; a standalone row cannot approve or clear a finding.
 
 Completed full-SHA null/null lifecycle sections are accepted as neutral schema during negative extraction. They never approve a review or erase explicit findings in the companion section; only a newer canonical own-section completion resolves those findings, including after repeated same-head requests.
+
+Static legacy clock selection uses the same closed verdict, footer and task-link presentation as classification. Unknown legacy presentation is ordered by server edit time; genuinely valid old static replies keep creation time and cannot be renewed by edits.
+
+An unpaired completed null/null code lifecycle observed during the current request remains pending even if a later static receipt exists outside its completion window. A strictly newer closed canonical machine clear may retire that lifecycle. Same-window immutable exact-head receipt pairing remains valid; equal-time clears, edited receipts and late receipts cannot supply approval.
+
+Unpaired lifecycle retirement requires a canonical own completion strictly after the server observation/edit second, so an old lifecycle completion cannot backdate a newer pending observation. Intermediate and equal-time canonical clears remain pending.

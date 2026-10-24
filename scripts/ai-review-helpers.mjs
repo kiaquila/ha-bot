@@ -1078,7 +1078,9 @@ export function verdictTime(comment, result, headSha = null, config = {}) {
     }
   }
 
-  const legacyPositive = /^Codex Review:\s*Did(?: not|n't|n’t) find any major issues\.(?: :rocket:| Keep it up!)?\s*(?:<details>[\s\S]*<\/details>)?\s*$/i.test(String(comment?.body || "").trim());
+  const legacyContent = withoutCodexFooter(withoutCodexTaskLink(String(comment?.body || "").trim()));
+  // Only the same closed static presentation may retain its original clock.
+  const legacyPositive = legacyContent !== null && isKnownCodexCleanVerdict(legacyContent);
   return result === "pass" && String(comment?.body || "").trim().startsWith(summaryMarker)
     ? codeCompletionTime(comment) : result === "pass" || legacyPositive ? comment?.created_at : comment?.updated_at || comment?.created_at;
 }
@@ -1257,6 +1259,24 @@ function hasPairedLifecycleReceipt(comment, comments, headSha, requestMarker, co
   });
 }
 
+
+// A neutral lifecycle has no approval to order against a later static reply.
+// Retire an unpaired current-request lifecycle only with a newer closed machine clear.
+function hasUnpairedNullLifecycle(comments, headSha, requestMarker, config) {
+  const requested = Date.parse(requestMarker?.sourceCommentCreatedAt || requestMarker?.requestedAt || requestMarker?.commentCreatedAt || "");
+  return comments.some((lifecycle) => {
+    const code = typedCodexState(lifecycle)?.code_review;
+    if (code?.has_any_findings !== null || code?.has_unresolved_findings !== null ||
+        Date.parse(lifecycle.updated_at || lifecycle.created_at || "") < requested ||
+        classifyCodexSummaryComment(lifecycle, headSha, requestMarker, config) !== "neutral" ||
+        hasPairedLifecycleReceipt(lifecycle, comments, headSha, requestMarker, config)) return false;
+    const observed = Math.floor(Date.parse(lifecycle.updated_at || lifecycle.created_at || "") / 1000);
+    return !comments.some((clear) => String(clear.body || "").trim().startsWith(summaryMarker) &&
+      classifyCodexSummaryComment(clear, headSha, requestMarker, config) === "pass" &&
+      Math.floor(Date.parse(codeCompletionTime(clear) || "") / 1000) > observed);
+  });
+}
+
 export function latestCodexCommentResult(comments, headSha, requestMarker, config = {}) {
   const requestedAt = Date.parse(requestMarker?.sourceCommentCreatedAt || requestMarker?.requestedAt || "");
   const isResolvedTypedFinding = (comment) => {
@@ -1268,6 +1288,7 @@ export function latestCodexCommentResult(comments, headSha, requestMarker, confi
   };
   if (comments.some((comment) => Date.parse(codexCommentTime(comment) || "") >= requestedAt && classifyCodexSummaryComment(comment, headSha, requestMarker, config) === "fail" &&
     !isResolvedTypedFinding(comment) && (hasIndependentSecurityWarning(comment, headSha) || /\bP[0-2]\b|found (?:some |major |any |an? )?(?:issues?|findings?)|unresolved (?:issues|findings)|changes requested/i.test(comment.body || "")))) return "fail";
+  if (hasUnpairedNullLifecycle(comments, headSha, requestMarker, config)) return "pending";
   const candidates = comments.filter((comment) =>
     isTrustedReviewLogin(comment?.user?.login, "codex", config) &&
     Date.parse(codexCommentTime(comment) || "") >= requestedAt

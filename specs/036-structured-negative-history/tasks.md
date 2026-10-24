@@ -116,3 +116,9 @@ Consolidated actual-native corrections passed mandatory preflight: 58 Python, 47
 - [ ] Repeat mandatory preflight and obtain genuine exact-head native review for the final contract.
 
 Completed null/null lifecycle sections remain neutral during negative extraction: explicit companion CODE/SEC findings survive repeated same-head requests and formal approval until a genuinely newer canonical own-section clear. Symmetric actual CLI regression required.
+
+Rejected legacy replies with unknown presentation keep the server edit observation time. Only the existing closed static presentation may retain its creation clock; intermediate/equal clean receipts cannot retire a newer invalid observation.
+
+An unpaired completed null/null code lifecycle observed during the current request remains pending even if a later static receipt exists outside its completion window. A strictly newer closed canonical machine clear may retire that lifecycle. Same-window immutable exact-head receipt pairing remains valid; equal-time clears, edited receipts and late receipts cannot supply approval.
+
+Lifecycle retirement compares the newer canonical own completion against the lifecycle server observation/edit second. A canonical clear between the old completion and that observation, or in the same observed second, remains insufficient.
