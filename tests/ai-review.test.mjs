@@ -941,3 +941,64 @@ test('null lifecycle retires independently when code and security clear in separ
     const result = gate({ body: '', comments }); assert.equal(result.status, expected ? 0 : 1, result.stdout + result.stderr);
   }
 });
+
+
+test('negative heading whitespace retains both section findings until newer own clear', () => {
+  const at = (minute) => `2026-10-15T10:0${minute}:00Z`;
+  const clean = { commit_sha: sha, has_any_findings: false, has_unresolved_findings: false, status: 'completed' };
+  const finding = { ...clean, has_any_findings: true, has_unresolved_findings: true };
+  const row = (time) => `| 🔒 **Security Review** | ✅ **Completed** <relative-time datetime="${time}">${time}</relative-time> | \`${sha.slice(0, 7)}\` | Manual request |`;
+  for (const kind of ['code_review', 'security_review']) {
+    const raw = summary(kind === 'code_review' ? finding : {}, kind === 'security_review' ? finding : clean).replaceAll(after, at(2)) + '\n' + row(at(2));
+    for (const ending of ['\n', '  \n', '\r\n', '  \r\n']) {
+      const negative = comment(raw.replace('## Codex Review Summary\n', '## Codex Review Summary' + ending) + '\nUncatalogued presentation.', { id: 940, created_at: at(2), updated_at: at(4) });
+      const laterReceipt = comment(receipt, { id: 941, created_at: at(5), updated_at: at(5) });
+      const clearAt = (minute) => comment(summary({}, clean).replaceAll(after, at(minute)) + '\n' + row(at(minute)), { id: 942 + minute, created_at: at(minute), updated_at: at(minute) });
+      for (const [extra, expected] of [[[], false], [[clearAt(3)], false], [[clearAt(4)], false], [[clearAt(6)], true]]) {
+        const result = gate({ body: '', comments: [negative, laterReceipt, ...extra] });
+        assert.equal(result.status === 0, expected, kind + JSON.stringify(ending) + result.stdout + result.stderr);
+      }
+    }
+  }
+});
+
+
+test('running companion rows cannot erase a nonempty trailing cell during historical clear', () => {
+  const at = (hour) => `2026-10-15T${hour}:00:00Z`;
+  const clean = { commit_sha: sha, has_any_findings: false, has_unresolved_findings: false, status: 'completed' };
+  const finding = { ...clean, has_any_findings: true, has_unresolved_findings: true };
+  const snapshot = (code, security, time) => {
+    const completed = `<relative-time datetime="${time}">${time}</relative-time>`;
+    let body = summary(code, security).replaceAll(after, time) + `\n| 🔒 **Security Review** | ${security.status === 'completed' ? '✅ **Completed**' : '🔄 **Running** since'} ${completed} | \`${sha.slice(0, 7)}\` | Manual request |`;
+    if (code.status !== 'completed') body = body.split('\n').map(line => line.includes('**Code Review**') ? line.replace('✅ **Completed**', '🔄 **Running** since') : line).join('\n');
+    return body;
+  };
+  for (const kind of ['code_review', 'security_review']) for (const status of ['running', 'in_progress']) {
+    const other = kind === 'code_review' ? 'security_review' : 'code_review';
+    const oldState = { code_review: clean, security_review: clean, [kind]: finding };
+    const clearState = { code_review: clean, security_review: clean, [other]: { ...clean, status } };
+    const old = comment(snapshot(oldState.code_review, oldState.security_review, at('08')), { id: 960, created_at: at('08'), updated_at: at('08') });
+    const current = comment(receipt, { id: 962, created_at: at('11'), updated_at: at('11') });
+    for (const suffix of ['', ' P1: Do not merge', ' Uncatalogued presentation.']) {
+      const rendered = snapshot(clearState.code_review, clearState.security_review, at('09')).split('\n').map(line => line.includes('**' + (other === 'code_review' ? 'Code' : 'Security') + ' Review**') ? line + suffix : line).join('\n');
+      const candidate = comment(rendered, { id: 961, created_at: at('09'), updated_at: at('09') });
+      const result = gate({ body: '', comments: [old, candidate, current] });
+      assert.equal(result.status === 0, suffix === '', kind + status + suffix + result.stdout + result.stderr);
+      if (!suffix) {
+        for (const [runningAt, expected] of [['2026-10-15T09:00:00.999Z', true], ['2026-10-15T09:00:01.000Z', false]]) {
+          const body = rendered.split('\n').map(line => line.includes('**' + (other === 'code_review' ? 'Code' : 'Security') + ' Review**') ? line.replaceAll(at('09'), runningAt) : line).join('\n');
+          const fractional = { ...candidate, body, updated_at: '2026-10-15T09:00:00.999Z' };
+          const boundary = gate({ body: '', comments: [old, fractional, current] }); assert.equal(boundary.status === 0, expected, kind + status + runningAt + boundary.stdout + boundary.stderr);
+        }
+      }
+      if (suffix) {
+        const equal = comment(snapshot(clean, clean, at('08')), { id: 963, created_at: at('08'), updated_at: at('08') });
+        assert.notEqual(gate({ body: '', comments: [old, candidate, current, equal] }).status, 0);
+        const recoveredAt = '2026-10-15T09:30:00Z';
+        const recovered = comment(snapshot(clean, clean, recoveredAt), { id: 964, created_at: recoveredAt, updated_at: recoveredAt });
+        const outcome = gate({ body: '', comments: [old, candidate, current, recovered] });
+        assert.equal(outcome.status, 0, outcome.stdout + outcome.stderr);
+      }
+    }
+  }
+});

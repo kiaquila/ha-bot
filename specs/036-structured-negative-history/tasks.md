@@ -126,3 +126,7 @@ Lifecycle retirement compares the newer canonical own completion against the lif
 - [x] Require closed observed Security completion status in approval, including invalid/mismatched/future date rejection and valid pre-creation carried companion compatibility (64 Node tests).
 
 Lifecycle retirement accepts a strictly newer canonical own Code clear independently of the companion Security verdict. Security findings retain their separate veto until their own genuinely newer canonical clearance. Completion upper bounds use the exclusive end of the server observed whole second, including fractional server timestamps; a timestamp in the following second cannot supply authority.
+
+Negative leading-envelope extraction retains exact native headings followed by ASCII horizontal spacing and LF/CRLF. These presentation variants cannot discard explicit Code or Security findings or borrow an older completion clock; unknown suffixes keep the server observation time until a strictly newer canonical own-section clear. Approval and clearance grammar remain closed.
+
+A removable running companion must have an empty trailing table cell, matching completed-row structural validation. Extra-cell warnings and unknown text cannot disappear during historical own-section clearance; canonical running companions remain supported, and a newer genuine canonical own clear may recover.
