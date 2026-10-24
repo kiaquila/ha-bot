@@ -1063,7 +1063,7 @@ function codeCompletionTime(comment) {
   const match = rows[0].match(/\| ✅ \*\*Completed\*\* <relative-time datetime="([^"]+)">([^<]+)<\/relative-time> \|/);
   const value = match && match[1] === match[2] ? Date.parse(match[1]) : NaN;
   const edited = Date.parse(comment?.updated_at || comment?.created_at || "");
-  return Number.isFinite(value) && Number.isFinite(edited) && Math.floor(value / 1000) >= Math.floor(Date.parse(comment.created_at || "") / 1000) && value <= edited + 999 ? match[1] : null;
+  return Number.isFinite(value) && Number.isFinite(edited) && Math.floor(value / 1000) >= Math.floor(Date.parse(comment.created_at || "") / 1000) && value < (Math.floor(edited / 1000) + 1) * 1000 ? match[1] : null;
 }
 
 export function verdictTime(comment, result, headSha = null, config = {}) {
@@ -1206,7 +1206,14 @@ export function classifyCodexSummaryComment(comment, headSha, requestMarker = nu
   if (!/^[a-f0-9]{40}$/.test(headSha || "") ||
       !isTrustedReviewLogin(comment?.user?.login, "codex", config) || !isCodexReviewSignal(body)) return null;
   if (body.startsWith(summaryMarker)) {
-    const result = parseStructuredCodexSummary(body, headSha, requestMarker);
+    let result = parseStructuredCodexSummary(body, headSha, requestMarker);
+    if (result === "pass" || result === "neutral") {
+      const security = typedCodexState(comment)?.security_review;
+      // A carried companion may predate this comment, but its closed status
+      // must still have a matching finite timestamp no later than observation.
+      if (security?.status !== null && !Number.isFinite(sectionCompletionBucket(
+          { ...comment, created_at: "1970-01-01T00:00:00Z", updated_at: comment.updated_at || comment.created_at }, "security_review", headSha))) result = null;
+    }
     if (result === null && containsBlockingSeverity(body, "codex")) return "fail";
     return result === "pass" && !codeCompletionTime(comment) ? null : result;
   }
@@ -1271,9 +1278,13 @@ function hasUnpairedNullLifecycle(comments, headSha, requestMarker, config) {
         classifyCodexSummaryComment(lifecycle, headSha, requestMarker, config) !== "neutral" ||
         hasPairedLifecycleReceipt(lifecycle, comments, headSha, requestMarker, config)) return false;
     const observed = Math.floor(Date.parse(lifecycle.updated_at || lifecycle.created_at || "") / 1000);
-    return !comments.some((clear) => String(clear.body || "").trim().startsWith(summaryMarker) &&
-      classifyCodexSummaryComment(clear, headSha, requestMarker, config) === "pass" &&
-      Math.floor(Date.parse(codeCompletionTime(clear) || "") / 1000) > observed);
+    return !comments.some((clear) => {
+      const state = typedCodexState(clear);
+      return state?.code_review.commit_sha === headSha &&
+        isTrustedReviewLogin(clear.user?.login, "codex", config) &&
+        canonicalSectionClear(clear, state, "code_review", headSha, config) &&
+        sectionCompletionBucket(clear, "code_review", headSha) > observed;
+    });
   });
 }
 
@@ -1457,7 +1468,7 @@ function sectionCompletionBucket(comment, kind, headSha = null) {
   const updated = Date.parse(comment.updated_at || comment.created_at || "");
   return Number.isFinite(value) && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?Z$/.test(match[1]) &&
     new Date(value).toISOString().slice(0, 19) === match[1].slice(0, 19) &&
-    Math.floor(value / 1000) >= Math.floor(Date.parse(comment.created_at || "") / 1000) && value <= updated + 999 ? Math.floor(value / 1000) : NaN;
+    Math.floor(value / 1000) >= Math.floor(Date.parse(comment.created_at || "") / 1000) && value < (Math.floor(updated / 1000) + 1) * 1000 ? Math.floor(value / 1000) : NaN;
 }
 
 

@@ -786,8 +786,9 @@ test('completion before comment creation cannot retire a newly observed finding'
     assert.equal(accepts(comment(body), sha, marker), false);
   }
   const security = {commit_sha: sha, has_any_findings: false, has_unresolved_findings: false, status: 'completed'};
-  const valid = summary({}, security) + '\n| 🛡️ **Security Review** | ✅ **Completed** | `'+sha.slice(0,7)+'` | Manual request |';
+  const valid = summary({}, security) + '\n| 🛡️ **Security Review** | ✅ **Completed** <relative-time datetime="'+after+'">'+after+'</relative-time> | `'+sha.slice(0,7)+'` | Manual request |';
   assert.equal(accepts(comment(valid), sha, marker), true);
+  assert.equal(accepts(comment(valid.replace(/ <relative-time[^>]*>[^<]*<\/relative-time>/g, '')), sha, marker), false);
   for (const body of [valid.replace('🛡️ **Security Review**', '⚠️ **Security Review**'), valid + ' warning', valid + '\n| 🛡️ **[Security](https://example.test) Review** | ✅ **Completed** | `bbbbbbb` | Manual request |']) assert.equal(accepts(comment(body), sha, marker), false);
  });
 
@@ -896,5 +897,47 @@ test('late receipts cannot retire an unpaired null lifecycle', async () => {
   const fresh = comment(summary().replaceAll(after, freshAt), { id: 904, created_at: freshAt, updated_at: freshAt });
   for (const [comments, expected] of [[[lifecycle, late], false], [[lifecycle, late, intermediate], false], [[lifecycle, late, equal], false], [[lifecycle, late, fresh], true]]) {
     const outcome = gate({ body: '', comments }); assert.equal(outcome.status, expected ? 0 : 1, outcome.stdout + outcome.stderr);
+  }
+});
+
+
+test('security status requires a matching observed completion timestamp', () => {
+  const security = { commit_sha: sha, has_any_findings: false, has_unresolved_findings: false, status: 'completed' };
+  const row = (time, display = time) => `| 🔒 **Security Review** | ✅ **Completed** <relative-time datetime="${time}">${display}</relative-time> | \`${sha.slice(0, 7)}\` | Manual request |`;
+  const body = (status) => summary({}, security) + '\n' + status;
+  for (const status of [row(after), row('2026-10-15T10:01:00.999Z'), row('2026-10-15T09:30:00Z')]) {
+    assert.equal(accepts(comment(body(status)), sha, marker), true);
+    const result = gate({ body: body(status) }); assert.equal(result.status, 0, result.stdout + result.stderr);
+  }
+  const fractionalObservation = '2026-10-15T10:01:00.500Z';
+  for (const section of ['code_review', 'security_review']) {
+    for (const [completion, expected] of [['2026-10-15T10:01:00.999Z', true], ['2026-10-15T10:01:01.100Z', false]]) {
+      let rendered = body(row(after));
+      if (section === 'code_review') rendered = rendered.replace(after, completion).replace(after, completion);
+      else rendered = body(row(completion));
+      const record = comment(rendered, { id: 925, updated_at: fractionalObservation });
+      assert.equal(accepts(record, sha, marker), expected, section + completion);
+      const result = gate({ body: body(row(after)), comments: [record] }); assert.equal(result.status === 0, expected, section + completion + result.stdout + result.stderr);
+    }
+  }
+  for (const status of [row('invalid', 'P1: Do not merge'), row('invalid'), row(after, 'P1: Do not merge'), row(after, before), row('2026-10-15T10:01:01Z'), row('2026-10-15T10:02:00Z'), row('2026-02-30T10:00:00Z'), row(after).replace(/ <relative-time[^>]*>[^<]*<\/relative-time>/, '')]) {
+    assert.equal(accepts(comment(body(status)), sha, marker), false);
+    const result = gate({ body: body(status) }); assert.notEqual(result.status, 0, status + result.stdout + result.stderr);
+  }
+});
+
+
+test('null lifecycle retires independently when code and security clear in separate snapshots', () => {
+  const at = (minute) => `2026-10-15T10:0${minute}:00Z`;
+  const clean = { commit_sha: sha, has_any_findings: false, has_unresolved_findings: false, status: 'completed' };
+  const row = (time) => `| 🔒 **Security Review** | ✅ **Completed** <relative-time datetime="${time}">${time}</relative-time> | \`${sha.slice(0, 7)}\` | Manual request |`;
+  const snapshot = (code, security, codeAt, secAt, created, updated, id) => comment(summary(code, security).replaceAll(after, codeAt) + (secAt ? '\n' + row(secAt) : ''), { id, created_at: created, updated_at: updated });
+  const lifecycle = snapshot({ has_any_findings: null, has_unresolved_findings: null }, { commit_sha: null, has_any_findings: null, has_unresolved_findings: null, status: null }, at(2), null, at(2), at(3), 920);
+  const codeClear = snapshot({}, { ...clean, has_any_findings: true, has_unresolved_findings: true }, at(4), at(4), at(4), at(4), 921);
+  const secClear = snapshot({}, clean, at(2), at(5), at(2), at(5), 922);
+  const current = comment(receipt, { id: 923, created_at: at(6), updated_at: at(6) });
+  const equalCode = snapshot({}, { ...clean, has_any_findings: true, has_unresolved_findings: true }, at(3), at(3), at(3), at(3), 924);
+  for (const [comments, expected] of [[[lifecycle, codeClear, current], false], [[lifecycle, secClear, current], false], [[lifecycle, equalCode, secClear, current], false], [[lifecycle, codeClear, secClear, current], true]]) {
+    const result = gate({ body: '', comments }); assert.equal(result.status, expected ? 0 : 1, result.stdout + result.stderr);
   }
 });
